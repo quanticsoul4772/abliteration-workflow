@@ -18,7 +18,10 @@ param(
 )
 
 # ===== CONFIGURE THESE =====
-$RUNPOD_API_KEY = ""  # Your RunPod API key (get from runpod.io/console/user/settings)
+# API key can be set via environment variable (recommended) or hardcoded here
+# To set environment variable: $env:RUNPOD_API_KEY = 'your-key-here'
+# Or permanently: [Environment]::SetEnvironmentVariable('RUNPOD_API_KEY', 'your-key', 'User')
+$RUNPOD_API_KEY = if ($env:RUNPOD_API_KEY) { $env:RUNPOD_API_KEY } else { "" }
 $RUNPOD_HOST = "103.196.86.69"     # Auto-configured by create-pod, or set manually
 $RUNPOD_PORT = "19214"     # Auto-configured by create-pod, or set manually
 $RUNPOD_USER = "root"
@@ -130,7 +133,7 @@ Heretic RunPod Automation
 SETUP:
   1. Install WSL: wsl --install (admin PowerShell, then reboot)
   2. Download runpodctl: .\runpod.ps1 install-runpodctl
-  3. Set RUNPOD_API_KEY in this script (get from runpod.io settings)
+  3. Set API key: `$env:RUNPOD_API_KEY = 'your-key'` (from runpod.io settings)
   4. Add SSH key to RunPod (Settings -> SSH Keys)
   5. Run: .\runpod.ps1 create-pod
   6. Run: .\runpod.ps1 setup
@@ -200,10 +203,10 @@ function Check-Config {
 }
 
 function Check-ApiKey {
-    $apiKey = if ($RUNPOD_API_KEY) { $RUNPOD_API_KEY } else { $env:RUNPOD_API_KEY }
-    if (-not $apiKey) {
+    if (-not $RUNPOD_API_KEY) {
         Write-Host "ERROR: RUNPOD_API_KEY not set!" -ForegroundColor Red
-        Write-Host "Set it in this script, or as environment variable: `$env:RUNPOD_API_KEY = 'your-key'" -ForegroundColor Yellow
+        Write-Host "Set environment variable: `$env:RUNPOD_API_KEY = 'your-key'" -ForegroundColor Yellow
+        Write-Host "Or permanently: [Environment]::SetEnvironmentVariable('RUNPOD_API_KEY', 'your-key', 'User')" -ForegroundColor Yellow
         Write-Host "Get your API key from: https://runpod.io/console/user/settings" -ForegroundColor Yellow
         exit 1
     }
@@ -215,12 +218,12 @@ function Invoke-RunPodGraphQL {
         [hashtable]$Variables = $null
     )
     
-    # Support API key from environment variable as fallback
-    $apiKey = if ($RUNPOD_API_KEY) { $RUNPOD_API_KEY } else { $env:RUNPOD_API_KEY }
-    if (-not $apiKey) {
-        Write-Host "ERROR: No API key found. Set RUNPOD_API_KEY in script or environment." -ForegroundColor Red
+    if (-not $RUNPOD_API_KEY) {
+        Write-Host "ERROR: No API key found. Set RUNPOD_API_KEY environment variable." -ForegroundColor Red
+        Write-Host "  `$env:RUNPOD_API_KEY = 'your-key'" -ForegroundColor Yellow
         return $null
     }
+    $apiKey = $RUNPOD_API_KEY
     
     $headers = @{
         "Content-Type" = "application/json"
@@ -1207,7 +1210,11 @@ tail -20 vllm.log
                 if (-not (Test-Path $configDir)) {
                     New-Item -ItemType Directory -Path $configDir -Force | Out-Null
                 }
-                "apiKey: $RUNPOD_API_KEY" | Out-File -FilePath "$configDir\.runpod.yaml" -Encoding utf8
+                if ($RUNPOD_API_KEY) {
+                    "apiKey: $RUNPOD_API_KEY" | Out-File -FilePath "$configDir\.runpod.yaml" -Encoding utf8
+                } else {
+                    Write-Host "WARNING: No API key set. Configure runpodctl manually." -ForegroundColor Yellow
+                }
                 Write-Host "API key configured." -ForegroundColor Green
                 
                 # Test it
@@ -1261,10 +1268,16 @@ tail -20 vllm.log
         # Check API key
         Write-Host "API Key: " -NoNewline
         if ($RUNPOD_API_KEY -and $RUNPOD_API_KEY.Length -gt 10) {
-            Write-Host "OK (configured)" -ForegroundColor Green
+            Write-Host "OK (from " -ForegroundColor Green -NoNewline
+            if ($env:RUNPOD_API_KEY) {
+                Write-Host "environment" -ForegroundColor Green -NoNewline
+            } else {
+                Write-Host "script" -ForegroundColor Green -NoNewline
+            }
+            Write-Host ")" -ForegroundColor Green
         } else {
             Write-Host "NOT CONFIGURED" -ForegroundColor Red
-            Write-Host "  Set RUNPOD_API_KEY in this script" -ForegroundColor Yellow
+            Write-Host "  Set: `$env:RUNPOD_API_KEY = 'your-key'" -ForegroundColor Yellow
         }
         
         Write-Host ("-" * 50)
