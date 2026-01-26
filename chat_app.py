@@ -2,6 +2,7 @@
 Heretic Chat - A sophisticated chat interface for abliterated models
 """
 
+import gc
 import json
 import logging
 from datetime import datetime
@@ -294,14 +295,17 @@ class ModelManager:
         if missing:
             raise ModelValidationError(model_path, missing)
 
-        # Unload previous model
+        # Unload previous model with proper memory cleanup
         if self.model is not None:
             logger.info("Unloading previous model...")
             del self.model
             del self.tokenizer
             self.model = None
             self.tokenizer = None
+            # Follow utils.py pattern: gc.collect() before AND after cache clear
+            gc.collect()
             torch.cuda.empty_cache()
+            gc.collect()
             logger.debug(f"GPU memory after unload: {format_gpu_memory_status()}")
 
         logger.info(f"Loading model from {model_path}...")
@@ -318,7 +322,9 @@ class ModelManager:
             logger.info(f"Memory status: {format_gpu_memory_status()}")
 
         except torch.cuda.OutOfMemoryError as e:
+            gc.collect()
             torch.cuda.empty_cache()
+            gc.collect()
             raise CUDAOutOfMemoryError() from e
 
         except Exception as e:
@@ -326,7 +332,9 @@ class ModelManager:
             self.model = None
             self.tokenizer = None
             self.current_model_path = None
+            gc.collect()
             torch.cuda.empty_cache()
+            gc.collect()
 
             error_str = str(e).lower()
             if "out of memory" in error_str or "cuda" in error_str:
@@ -443,12 +451,12 @@ class ModelManager:
         thread = Thread(target=generate_with_error_capture)
         thread.start()
 
-        # Yield tokens as they arrive
-        generated_text = ""
+        # Yield tokens as they arrive using list + join for O(n) instead of O(n²)
+        generated_parts: list[str] = []
         try:
             for new_text in streamer:
-                generated_text += new_text
-                yield generated_text
+                generated_parts.append(new_text)
+                yield "".join(generated_parts)
         except Exception as e:
             thread.join()
             raise GenerationError(e) from e

@@ -166,6 +166,7 @@ class Model:
     ):
         if direction_index is None:
             refusal_direction = None
+            global_projector = None
         else:
             # The index must be shifted by 1 because the first element
             # of refusal_directions is the direction for the embeddings.
@@ -178,11 +179,22 @@ class Model:
                 p=2,
                 dim=0,
             )
+            # Pre-compute projector for global direction (reused across all layers)
+            global_projector = torch.outer(
+                refusal_direction,
+                refusal_direction,
+            ).to(self.model.dtype)
+
+        # Cache layer matrices to avoid repeated lookups (structure doesn't change)
+        num_layers = len(self.get_layers())
+        layer_matrices_cache = {
+            i: self.get_layer_matrices(i) for i in range(num_layers)
+        }
 
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
-        for layer_index in range(len(self.get_layers())):
-            for component, matrices in self.get_layer_matrices(layer_index).items():
+        for layer_index in range(num_layers):
+            for component, matrices in layer_matrices_cache[layer_index].items():
                 params = parameters[component]
 
                 distance = abs(layer_index - params.max_weight_position)
@@ -198,19 +210,18 @@ class Model:
                     params.min_weight - params.max_weight
                 )
 
-                if refusal_direction is None:
+                if global_projector is not None:
+                    # Use pre-computed global projector
+                    projector = global_projector
+                else:
+                    # Per-layer direction: compute projector for this layer
                     # The index must be shifted by 1 because the first element
                     # of refusal_directions is the direction for the embeddings.
                     layer_refusal_direction = refusal_directions[layer_index + 1]
-                else:
-                    layer_refusal_direction = refusal_direction
-
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
-                projector = torch.outer(
-                    layer_refusal_direction,
-                    layer_refusal_direction,
-                ).to(self.model.dtype)
+                    projector = torch.outer(
+                        layer_refusal_direction,
+                        layer_refusal_direction,
+                    ).to(self.model.dtype)
 
                 for matrix in matrices:
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
