@@ -13,7 +13,7 @@ from typing import Any, Generator
 
 import gradio as gr
 import torch
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -163,6 +163,19 @@ class WebSearcher:
         r"\b(search|look up|find out|google)\b",
     ]
 
+    # Patterns to clean up search queries (remove question prefixes)
+    QUERY_CLEANUP_PATTERNS: list[str] = [
+        r"^what('s| is| are)\s+",
+        r"^where('s| is| are)\s+",
+        r"^when('s| is| are)\s+",
+        r"^who('s| is| are)\s+",
+        r"^how (much|many|do|does|can|is|are)\s+",
+        r"^can you (tell me|find|search|look up)\s+",
+        r"^(please |could you )?(tell me|find|search|look up|google)\s+",
+        r"^i want to know\s+",
+        r"^i('m| am) (looking for|wondering about)\s+",
+    ]
+
     def __init__(self, max_results: int = 5) -> None:
         """Initialize the web searcher.
 
@@ -172,6 +185,9 @@ class WebSearcher:
         self.max_results = max_results
         self._compiled_patterns = [
             re.compile(p, re.IGNORECASE) for p in self.CURRENT_INFO_PATTERNS
+        ]
+        self._cleanup_patterns = [
+            re.compile(p, re.IGNORECASE) for p in self.QUERY_CLEANUP_PATTERNS
         ]
 
     def should_search(self, query: str) -> bool:
@@ -195,21 +211,45 @@ class WebSearcher:
         return False
 
     def extract_search_query(self, message: str) -> str:
-        """Extract the search query from a message.
+        """Extract and clean the search query from a message.
 
         Args:
             message: The user's message.
 
         Returns:
-            The extracted search query.
+            A cleaned search query optimized for web search.
         """
         # Handle explicit /search command
         if message.strip().lower().startswith("/search"):
             query = message.strip()[7:].strip()  # Remove "/search "
-            return query if query else message
+            return self._clean_query(query) if query else message
 
-        # For auto-detected searches, use the whole message
-        return message
+        # For auto-detected searches, clean up the natural language query
+        return self._clean_query(message)
+
+    def _clean_query(self, query: str) -> str:
+        """Clean a query for better search results.
+
+        Args:
+            query: The raw query string.
+
+        Returns:
+            A cleaned query string.
+        """
+        cleaned = query.strip()
+
+        # Remove common question words/phrases that don't help search
+        for pattern in self._cleanup_patterns:
+            cleaned = pattern.sub("", cleaned)
+
+        # Remove trailing question marks and clean up whitespace
+        cleaned = cleaned.rstrip("?!.").strip()
+
+        # If cleaning removed too much, use original
+        if len(cleaned) < 3:
+            return query.rstrip("?!.").strip()
+
+        return cleaned
 
     def search(self, query: str) -> list[dict[str, str]]:
         """Perform a web search.
