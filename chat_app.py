@@ -264,8 +264,15 @@ class WebSearcher:
             WebSearchError: If the search fails.
         """
         try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=self.max_results))
+            # Use DuckDuckGo's API backend with US region for best results
+            # backend='api' uses DuckDuckGo's own API (avoids Google blocking)
+            # region='us-en' ensures English results from US
+            results = DDGS().text(
+                query,
+                max_results=self.max_results,
+                backend="api",
+                region="us-en",
+            )
 
             # Normalize the result format
             formatted_results: list[dict[str, str]] = []
