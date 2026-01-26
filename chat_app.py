@@ -5,6 +5,7 @@ Heretic Chat - A sophisticated chat interface for abliterated models
 import gc
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -12,6 +13,7 @@ from typing import Any, Generator
 
 import gradio as gr
 import torch
+from duckduckgo_search import DDGS
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -107,6 +109,17 @@ class GenerationError(HereticError):
         super().__init__(self.message)
 
 
+class WebSearchError(HereticError):
+    """Raised when web search fails."""
+
+    def __init__(self, cause: Exception | None = None) -> None:
+        self.cause = cause
+        self.message = "Web search failed"
+        if cause:
+            self.message += f": {cause}"
+        super().__init__(self.message)
+
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -130,6 +143,137 @@ TOKENIZER_FILES: list[str] = [
 
 # Available models (will be populated dynamically)
 AVAILABLE_MODELS: dict[str, str] = {}
+
+
+# =============================================================================
+# Web Search
+# =============================================================================
+
+
+class WebSearcher:
+    """Handles web searches using DuckDuckGo."""
+
+    # Keywords that suggest the user wants current/recent information
+    CURRENT_INFO_PATTERNS: list[str] = [
+        r"\b(today|tonight|yesterday|this week|this month|this year)\b",
+        r"\b(current|latest|recent|new|now)\b",
+        r"\b(news|update|happening|trending)\b",
+        r"\b(who is|what is|where is|when is|how much)\b.*\?",
+        r"\b(price|stock|weather|score|result)\b",
+        r"\b(search|look up|find out|google)\b",
+    ]
+
+    def __init__(self, max_results: int = 5) -> None:
+        """Initialize the web searcher.
+
+        Args:
+            max_results: Maximum number of search results to return.
+        """
+        self.max_results = max_results
+        self._compiled_patterns = [
+            re.compile(p, re.IGNORECASE) for p in self.CURRENT_INFO_PATTERNS
+        ]
+
+    def should_search(self, query: str) -> bool:
+        """Determine if a query would benefit from web search.
+
+        Args:
+            query: The user's message.
+
+        Returns:
+            True if the query likely needs current information.
+        """
+        # Check for explicit search command
+        if query.strip().lower().startswith("/search"):
+            return True
+
+        # Check for patterns suggesting need for current info
+        for pattern in self._compiled_patterns:
+            if pattern.search(query):
+                return True
+
+        return False
+
+    def extract_search_query(self, message: str) -> str:
+        """Extract the search query from a message.
+
+        Args:
+            message: The user's message.
+
+        Returns:
+            The extracted search query.
+        """
+        # Handle explicit /search command
+        if message.strip().lower().startswith("/search"):
+            query = message.strip()[7:].strip()  # Remove "/search "
+            return query if query else message
+
+        # For auto-detected searches, use the whole message
+        return message
+
+    def search(self, query: str) -> list[dict[str, str]]:
+        """Perform a web search.
+
+        Args:
+            query: The search query.
+
+        Returns:
+            List of search results with 'title', 'url', and 'snippet' keys.
+
+        Raises:
+            WebSearchError: If the search fails.
+        """
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=self.max_results))
+
+            # Normalize the result format
+            formatted_results: list[dict[str, str]] = []
+            for r in results:
+                formatted_results.append(
+                    {
+                        "title": r.get("title", ""),
+                        "url": r.get("href", ""),
+                        "snippet": r.get("body", ""),
+                    }
+                )
+
+            logger.info(
+                f"Web search for '{query}' returned {len(formatted_results)} results"
+            )
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Web search failed: {e}")
+            raise WebSearchError(e) from e
+
+    def format_results_for_context(
+        self, results: list[dict[str, str]], query: str
+    ) -> str:
+        """Format search results as context for the model.
+
+        Args:
+            results: List of search results.
+            query: The original search query.
+
+        Returns:
+            Formatted string to inject into the conversation context.
+        """
+        if not results:
+            return f"[Web search for '{query}' returned no results.]"
+
+        formatted = f"[Web Search Results for '{query}':]"
+        for i, r in enumerate(results, 1):
+            formatted += f"\n\n{i}. {r['title']}\n"
+            formatted += f"   URL: {r['url']}\n"
+            formatted += f"   {r['snippet']}"
+
+        formatted += "\n\n[Use the above search results to help answer the user's question. Cite sources when relevant.]"
+        return formatted
+
+
+# Global web searcher
+web_searcher = WebSearcher()
 
 
 # =============================================================================
@@ -560,6 +704,7 @@ def chat_response(
     model_name: str,
     max_tokens: int,
     temperature: float,
+    enable_web_search: bool = True,
 ) -> Generator[str, None, None]:
     """Generate a chat response with streaming.
 
@@ -569,6 +714,7 @@ def chat_response(
         model_name: Display name of the model to use.
         max_tokens: Maximum tokens to generate.
         temperature: Sampling temperature.
+        enable_web_search: Whether to enable automatic web search.
 
     Yields:
         Partial response strings as they are generated.
@@ -598,26 +744,57 @@ def chat_response(
         yield f"Error: {e.message}"
         return
 
+    # Check for web search
+    search_context = ""
+    search_prefix = ""
+    if enable_web_search and web_searcher.should_search(message):
+        search_query = web_searcher.extract_search_query(message)
+        try:
+            yield "🔍 Searching the web...\n\n"
+            results = web_searcher.search(search_query)
+            search_context = web_searcher.format_results_for_context(
+                results, search_query
+            )
+            search_prefix = f"🔍 *Found {len(results)} web results*\n\n"
+            logger.info(f"Web search completed for: {search_query}")
+        except WebSearchError as e:
+            logger.warning(f"Web search failed, continuing without: {e}")
+            search_context = (
+                f"[Web search failed: {e.cause}. Answering without web results.]"
+            )
+            search_prefix = "⚠️ *Web search failed, answering without results*\n\n"
+
     # Build messages list from history (Gradio 6 format: list of dicts)
     messages: list[dict[str, str]] = []
     for msg in history:
         messages.append({"role": msg["role"], "content": msg["content"]})
 
-    # Add current message
-    messages.append({"role": "user", "content": message})
+    # Add current message, with search context prepended to user message if available
+    # (Prepending to user message works better than system message mid-conversation)
+    clean_message = message.strip()
+    if clean_message.lower().startswith("/search"):
+        clean_message = clean_message[7:].strip() or message
+
+    if search_context:
+        # Prepend search results to the user's message for better model compatibility
+        user_content = f"{search_context}\n\nUser question: {clean_message}"
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": clean_message})
 
     # Generate streaming response
     try:
         for partial_response in model_manager.generate_stream(
             messages, max_tokens, temperature
         ):
-            yield partial_response
+            # Prepend search prefix so users know search was performed
+            yield search_prefix + partial_response
     except TokenizationError as e:
         logger.error(f"Tokenization error: {e}")
-        yield f"Error tokenizing input: {e.cause}"
+        yield f"{search_prefix}Error tokenizing input: {e.cause}"
     except GenerationError as e:
         logger.error(f"Generation error: {e}")
-        yield f"Error generating response: {e.cause}"
+        yield f"{search_prefix}Error generating response: {e.cause}"
 
 
 # =============================================================================
@@ -702,6 +879,12 @@ def create_ui() -> gr.Blocks:
                     label="Temperature",
                     info="Higher = more creative, Lower = more focused",
                 )
+            with gr.Row():
+                enable_web_search = gr.Checkbox(
+                    value=True,
+                    label="Enable Web Search",
+                    info="Auto-search when questions need current info. Use /search <query> for explicit searches.",
+                )
 
         # Chat history management
         with gr.Accordion("Chat History", open=False):
@@ -728,6 +911,8 @@ def create_ui() -> gr.Blocks:
                 "Write a poem about the beauty of chaos.",
                 "What are the ethical implications of AI development?",
                 "Help me brainstorm ideas for a sci-fi novel.",
+                "/search latest news about artificial intelligence",
+                "What is the current price of Bitcoin?",
             ],
             inputs=msg,
             label="Try these prompts",
@@ -744,7 +929,11 @@ def create_ui() -> gr.Blocks:
             return "", history
 
         def bot_response(
-            history: list[dict[str, str]], model_name: str, max_tok: int, temp: float
+            history: list[dict[str, str]],
+            model_name: str,
+            max_tok: int,
+            temp: float,
+            web_search: bool,
         ) -> Generator[list[dict[str, str]], None, None]:
             """Generate bot response."""
             if not history:
@@ -758,7 +947,7 @@ def create_ui() -> gr.Blocks:
 
             # Generate response
             for response in chat_response(
-                user_msg, history[:-2], model_name, max_tok, temp
+                user_msg, history[:-2], model_name, max_tok, temp, web_search
             ):
                 history[-1]["content"] = response
                 yield history
@@ -775,13 +964,17 @@ def create_ui() -> gr.Blocks:
 
         # Wire up events
         msg.submit(user_message, [msg, chatbot], [msg, chatbot], queue=False).then(
-            bot_response, [chatbot, model_dropdown, max_tokens, temperature], chatbot
+            bot_response,
+            [chatbot, model_dropdown, max_tokens, temperature, enable_web_search],
+            chatbot,
         ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status])
 
         submit_btn.click(
             user_message, [msg, chatbot], [msg, chatbot], queue=False
         ).then(
-            bot_response, [chatbot, model_dropdown, max_tokens, temperature], chatbot
+            bot_response,
+            [chatbot, model_dropdown, max_tokens, temperature, enable_web_search],
+            chatbot,
         ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status])
 
         model_dropdown.change(update_status, [model_dropdown], [status_text])

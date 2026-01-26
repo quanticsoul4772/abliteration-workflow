@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "accelerate>=1.10.0",
     "datasets>=4.0.0",
+    "duckduckgo-search>=8.1.1",
     "hf-transfer>=0.1.9",
     "huggingface-hub>=0.34.4",
     "optuna>=4.5.0",
