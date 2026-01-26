@@ -264,14 +264,14 @@ class WebSearcher:
             WebSearchError: If the search fails.
         """
         try:
-            # Use DuckDuckGo's API backend with US region for best results
-            # backend='api' uses DuckDuckGo's own API (avoids Google blocking)
-            # region='us-en' ensures English results from US
+            # Use DuckDuckGo's API backend for best results
+            # backend='api' uses DuckDuckGo's native API (avoids Google blocking)
+            # region='wt-wt' for worldwide results (most reliable)
             results = DDGS().text(
                 query,
                 max_results=self.max_results,
                 backend="api",
-                region="us-en",
+                region="wt-wt",
             )
 
             # Normalize the result format
