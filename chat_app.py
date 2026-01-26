@@ -357,24 +357,42 @@ class ModelManager:
         try:
             # Use tokenize=True directly for most reliable cross-model compatibility
             # This avoids issues where some tokenizers return different types
-            input_ids = self.tokenizer.apply_chat_template(
+            result = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 add_generation_prompt=True,
                 return_tensors="pt",
             )
 
-            # Ensure we have a proper tensor
-            if not isinstance(input_ids, torch.Tensor):
-                if isinstance(input_ids, list):
-                    if not input_ids:
-                        raise TokenizationError(Exception("Tokenizer returned empty list"))
-                    input_ids = torch.tensor([input_ids] if isinstance(input_ids[0], int) else input_ids)
-                else:
-                    raise TokenizationError(Exception(f"Unexpected tokenizer output type: {type(input_ids)}"))
+            # Handle different return types from apply_chat_template:
+            # - BatchEncoding (most common with return_tensors="pt")
+            # - torch.Tensor (some tokenizers)
+            # - list of ints (if return_tensors not supported)
+            if hasattr(result, "input_ids"):
+                # BatchEncoding or similar dict-like object
+                input_ids = result.input_ids
+                attention_mask = result.get("attention_mask", None)
+            elif isinstance(result, torch.Tensor):
+                input_ids = result
+                attention_mask = None
+            elif isinstance(result, list):
+                if not result:
+                    raise TokenizationError(Exception("Tokenizer returned empty list"))
+                # List of token IDs
+                input_ids = torch.tensor(
+                    [result] if isinstance(result[0], int) else result
+                )
+                attention_mask = None
+            else:
+                raise TokenizationError(
+                    Exception(f"Unexpected tokenizer output type: {type(result)}")
+                )
 
             input_ids = input_ids.to(self.model.device)
-            attention_mask = torch.ones_like(input_ids)
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids)
+            else:
+                attention_mask = attention_mask.to(self.model.device)
 
         except TokenizationError:
             raise
