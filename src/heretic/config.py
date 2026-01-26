@@ -38,6 +38,16 @@ class Settings(BaseSettings):
         description="Path to save the model when using --auto-select. Defaults to './<model-name>-heretic'.",
     )
 
+    hf_upload: str | None = Field(
+        default=None,
+        description="HuggingFace repo ID to upload the model to (e.g., 'username/model-heretic'). Requires HF_TOKEN env var or huggingface-cli login.",
+    )
+
+    hf_private: bool = Field(
+        default=False,
+        description="Make the uploaded HuggingFace repository private.",
+    )
+
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.
@@ -85,8 +95,13 @@ class Settings(BaseSettings):
     )
 
     n_startup_trials: int = Field(
-        default=60,
+        default=30,
         description="Number of trials that use random sampling for the purpose of exploration.",
+    )
+
+    prune_trials: bool = Field(
+        default=True,
+        description="Enable pruning of unpromising trials using Optuna's MedianPruner. Note: Currently marks trials as pruned after evaluation (helps TPE sampler learn faster, but doesn't save computation time per trial).",
     )
 
     refusal_markers: list[str] = Field(

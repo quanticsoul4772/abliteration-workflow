@@ -22,9 +22,10 @@ from accelerate.utils import (
     is_sdaa_available,
     is_xpu_available,
 )
-from huggingface_hub import ModelCard, ModelCardData
+from huggingface_hub import ModelCard, ModelCardData, get_token
 from optuna import Trial
-from optuna.exceptions import ExperimentalWarning
+from optuna.exceptions import ExperimentalWarning, TrialPruned
+from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
@@ -291,6 +292,13 @@ def run():
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
+        # Report intermediate value for pruning (use KL divergence as it's available earlier)
+        if settings.prune_trials:
+            trial.report(kl_divergence, step=0)
+            if trial.should_prune():
+                print(f"[yellow]Trial {trial_index} pruned (KL divergence: {kl_divergence:.2f})[/]")
+                raise TrialPruned()
+
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / trial_index) * (
             settings.n_trials - trial_index
@@ -307,6 +315,13 @@ def run():
 
         return score
 
+    # Configure pruner for early stopping of bad trials
+    pruner = MedianPruner(
+        n_startup_trials=settings.n_startup_trials,
+        n_warmup_steps=0,
+        interval_steps=1,
+    ) if settings.prune_trials else None
+
     study = optuna.create_study(
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
@@ -314,6 +329,7 @@ def run():
             multivariate=True,
         ),
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        pruner=pruner,
     )
 
     study.optimize(objective, n_trials=settings.n_trials)
@@ -383,6 +399,50 @@ def run():
         model.model.save_pretrained(save_directory)
         model.tokenizer.save_pretrained(save_directory)
         print(f"[bold green]Model saved to {save_directory}[/]")
+
+        # Auto-upload to HuggingFace if --hf-upload is specified
+        if settings.hf_upload:
+            print()
+            print(f"Uploading model to HuggingFace: [bold]{settings.hf_upload}[/]...")
+            try:
+                token = get_token()
+                if not token:
+                    print("[red]No HuggingFace token found. Set HF_TOKEN env var or run 'huggingface-cli login'[/]")
+                else:
+                    model.model.push_to_hub(
+                        settings.hf_upload,
+                        private=settings.hf_private,
+                        token=token,
+                    )
+                    model.tokenizer.push_to_hub(
+                        settings.hf_upload,
+                        private=settings.hf_private,
+                        token=token,
+                    )
+
+                    # Upload model card if source model is from HuggingFace
+                    if not Path(settings.model).exists():
+                        card = ModelCard.load(settings.model)
+                        if card.data is None:
+                            card.data = ModelCardData()
+                        if card.data.tags is None:
+                            card.data.tags = []
+                        card.data.tags.extend(["heretic", "uncensored", "decensored", "abliterated"])
+                        card.text = (
+                            get_readme_intro(
+                                settings,
+                                trial,
+                                evaluator.base_refusals,
+                                evaluator.bad_prompts,
+                            )
+                            + card.text
+                        )
+                        card.push_to_hub(settings.hf_upload, token=token)
+
+                    print(f"[bold green]Model uploaded to {settings.hf_upload}[/]")
+            except Exception as error:
+                print(f"[red]Failed to upload to HuggingFace: {error}[/]")
+
         return
 
     # Interactive mode
@@ -452,7 +512,7 @@ def run():
                         # We don't use huggingface_hub.login() because that stores the token on disk,
                         # and since this program will often be run on rented or shared GPU servers,
                         # it's better to not persist credentials.
-                        token = huggingface_hub.get_token()
+                        token = get_token()
                         if not token:
                             token = questionary.password(
                                 "Hugging Face access token:"

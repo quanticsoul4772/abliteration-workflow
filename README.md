@@ -8,8 +8,11 @@ Heretic is a tool for automatic censorship removal (abliteration) from language 
 # Install
 pip install heretic-llm
 
-# Run abliteration
+# Run abliteration (interactive)
 heretic Qwen/Qwen3-4B-Instruct-2507
+
+# Run abliteration (fully automated)
+heretic Qwen/Qwen3-4B-Instruct-2507 --auto-select --hf-upload username/model-heretic
 ```
 
 ## RunPod Deployment (Recommended for GPU)
@@ -33,9 +36,11 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed instructions.
 ## Features
 
 - **Automatic optimization** - Uses Optuna for multi-objective hyperparameter tuning
+- **Early stopping** - MedianPruner stops unpromising trials early (30-40% time savings)
 - **Pareto-optimal results** - Presents best trade-offs between capability preservation and censorship removal
 - **Multi-GPU support** - Scales across available GPUs
 - **HuggingFace integration** - Direct upload to your HF account
+- **Fully automated mode** - `--auto-select` + `--hf-upload` for headless operation
 
 ## Requirements
 
@@ -59,17 +64,34 @@ uv run heretic <model-name>
 ## Usage
 
 ```bash
-# Basic usage
+# Basic usage (interactive)
 heretic <model-name>
 
-# With options
+# Quick test with fewer trials
+heretic <model-name> --n-trials 50
+
+# Fully automated (for cloud/CI)
+heretic <model-name> --auto-select --hf-upload username/model-heretic
+
+# With custom config
 heretic --model <model-name> --config config.toml
 
 # Examples
 heretic Qwen/Qwen3-4B-Instruct-2507
-heretic meta-llama/Llama-3.1-8B-Instruct
-heretic mistralai/Mistral-7B-Instruct-v0.3
+heretic meta-llama/Llama-3.1-8B-Instruct --n-trials 100
+heretic mistralai/Mistral-7B-Instruct-v0.3 --auto-select --auto-select-path ./output
 ```
+
+### Automation Flags
+
+| Flag | Description |
+|------|-------------|
+| `--auto-select` | Auto-select best trial and save without prompts |
+| `--auto-select-path PATH` | Custom output path (default: `./<model>-heretic`) |
+| `--hf-upload REPO` | Upload to HuggingFace (e.g., `user/model-heretic`) |
+| `--hf-private` | Make HuggingFace repo private |
+| `--n-trials N` | Number of trials (default: 200) |
+| `--prune-trials/--no-prune-trials` | Enable/disable early stopping (default: enabled) |
 
 ## Configuration
 
