@@ -360,12 +360,34 @@ class ModelManager:
                 messages, tokenize=False, add_generation_prompt=True
             )
 
-            # Tokenize the prompt
-            encoded = self.tokenizer(prompt, return_tensors="pt")
-            input_ids = encoded["input_ids"].to(self.model.device)
-            attention_mask = encoded.get("attention_mask")
-            if attention_mask is not None:
-                attention_mask = attention_mask.to(self.model.device)
+            # Handle case where tokenizer returns a list instead of string
+            skip_tokenization = False
+            if isinstance(prompt, list):
+                if prompt and isinstance(prompt[0], str):
+                    # List of strings - join them
+                    prompt = "".join(prompt)
+                else:
+                    # List of token IDs - use tokenize=True approach
+                    logger.debug("Tokenizer returned token IDs, using tokenize=True")
+                    input_ids = self.tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=True,
+                        add_generation_prompt=True,
+                        return_tensors="pt",
+                    )
+                    if not isinstance(input_ids, torch.Tensor):
+                        input_ids = torch.tensor([input_ids])
+                    input_ids = input_ids.to(self.model.device)
+                    attention_mask = torch.ones_like(input_ids)
+                    skip_tokenization = True
+
+            # Normal tokenization path (prompt is now a string)
+            if not skip_tokenization:
+                encoded = self.tokenizer(prompt, return_tensors="pt")
+                input_ids = encoded["input_ids"].to(self.model.device)
+                attention_mask = encoded.get("attention_mask")
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.model.device)
 
         except Exception as e:
             raise TokenizationError(e) from e
