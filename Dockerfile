@@ -59,8 +59,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
 
+# Fix dependency conflicts: upgrade transformers first to ensure compatibility
+# with newer model architectures (Qwen2, Qwen3, Llama 3.2, etc.)
+RUN pip install --no-cache-dir \
+    transformers>=4.55.2 \
+    accelerate>=1.0.0 \
+    torch>=2.4.0 \
+    --upgrade
+
+# Reinstall torchvision to fix circular import issues
+RUN pip install --no-cache-dir --force-reinstall torchvision
+
 # Install heretic from the fork with all improvements
-# (--auto-select, --hf-upload, Optuna pruning, etc.)
+# (--auto-select, --hf-upload, etc.)
 RUN pip install --no-cache-dir git+https://github.com/quanticsoul4772/heretic.git
 
 # Install additional useful tools
