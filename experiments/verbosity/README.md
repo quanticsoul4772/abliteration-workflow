@@ -149,6 +149,35 @@ mlp.down_proj.min_weight = 0.24
 3. **⚠️ Open-ended questions unaffected** - Complex/opinion questions still get long responses (195-203 words)
 4. **Interpretation**: The "verbosity direction" appears to control *unnecessary elaboration* on simple facts, but doesn't suppress *appropriate elaboration* on complex topics
 
+### Analysis: Why Results Were Mixed
+
+**What we extracted:** A **"padding direction"** - the tendency to add unnecessary filler to simple answers.
+
+**What we didn't extract:** An **"elaboration direction"** - the tendency to provide detailed explanations.
+
+**The problem with our prompt design:**
+
+| Prompt Type | What We Used | The Problem |
+|-------------|--------------|-------------|
+| Concise | Simple factual questions | Question complexity ≠ verbosity |
+| Verbose | Complex open-ended questions | Complexity naturally invites depth |
+
+We conflated **question complexity** with **verbosity behavior**. A model SHOULD give longer answers to "What do you think about AI?" than to "What is 2+2?"
+
+**The right approach (see v2 experiment):**
+
+```
+SAME question, different verbosity level:
+- "What is 2+2?"
+- "What is 2+2? Please explain your reasoning in detail."
+
+SAME question, different instruction:
+- "Summarize quantum physics."
+- "Summarize quantum physics in one sentence."
+```
+
+This isolates the **padding behavior** (unnecessary filler) from **appropriate thoroughness** (answering complex questions completely).
+
 ## What We're Testing
 
 1. **Does the direction exist?** Can we extract a meaningful verbosity direction?
@@ -171,18 +200,36 @@ python experiments/verbosity/test_comparison_4bit.py
 
 **The spike worked - verbosity direction exists and is extractable.**
 
-Recommended follow-ups:
+### Immediate Next Experiments
+
+1. **verbosity_v2** - Improved prompts that isolate padding from complexity
+   - Same questions with/without "explain in detail" instructions
+   - Located in `experiments/verbosity_v2/`
+
+2. **hedging** - Extract the hedging direction
+   - "I think", "perhaps", "might be", "it's possible"
+   - Located in `experiments/hedging/`
+
+3. **sycophancy** - Extract excessive agreement/praise
+   - "Great question!", "That's a wonderful idea!"
+   - Future experiment
+
+### Other Follow-ups
+
 - [ ] Test composition with refusal direction (apply both to same model)
-- [ ] Extract hedging direction ("I think", "perhaps", "might be")
-- [ ] Extract sycophancy direction (excessive agreement/praise)
 - [ ] Test cross-model transfer (does Qwen direction work on Llama?)
 - [ ] Compare with inference-time steering (activation injection)
 - [ ] Document optimal layer ranges for verbosity vs refusal
 
-**Potential improvements:**
-- Use more targeted prompts that isolate verbosity from thoroughness
-- Test on instruction-following benchmarks to verify capability preservation
-- Measure token reduction across larger prompt sets
+### Better Metrics for Future Experiments
+
+| Metric | What It Measures | How to Compute |
+|--------|------------------|----------------|
+| **Information density** | Useful content per token | Manual annotation or LLM scoring |
+| **Filler phrase count** | "Great question!", "I hope this helps" | Regex pattern matching |
+| **Preamble length** | Words before actual answer | Heuristic detection |
+| **Hedging markers** | "I think", "perhaps", "might be" | Keyword counting |
+| **Token reduction** | Raw length comparison | Tokenizer count |
 
 ## Technical Notes
 

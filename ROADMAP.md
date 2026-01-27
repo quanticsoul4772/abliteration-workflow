@@ -171,22 +171,37 @@ class Direction:
 
 ## Current Experiments
 
-### Verbosity Spike (`experiments/verbosity/`)
+### Verbosity Spike v1 (`experiments/verbosity/`) - COMPLETE
 
-**Goal:** Validate that a "verbosity direction" exists and can be extracted.
+**Status:** ✅ Complete. Extracted a "padding direction" but not a full "elaboration direction."
 
-**Approach:** Use prompts that *naturally* elicit different verbosity levels:
-- Concise: "What is the capital of France?" (factual, single answer)
-- Verbose: "What do you think about AI?" (open-ended, invites elaboration)
+**Results:**
+- Factual questions: 6-30 words (success!)
+- Open-ended questions: 195-203 words (unchanged)
 
-**Status:** Dataset created, ready to run after current abliteration completes.
+**Lesson:** Our prompts conflated question complexity with verbosity. Open-ended questions SHOULD get longer answers.
 
-**Success Criteria:**
-- Token reduction > 20%
-- KL divergence < 1.0 (capability preserved)
-- Model still answers complex questions correctly
+### Verbosity v2 (`experiments/verbosity_v2/`) - READY
 
-See `experiments/verbosity/README.md` for details.
+**Goal:** Isolate padding behavior from question complexity.
+
+**Approach:** Use SAME questions with different instructions:
+- Concise: "What is 2+2?"
+- Verbose: "What is 2+2? Please explain in detail."
+
+This targets the padding that gets added when asked for "detail."
+
+### Hedging Experiment (`experiments/hedging/`) - READY
+
+**Goal:** Extract the hedging direction ("I think", "perhaps", "might be").
+
+**Approach:** Contrast factual vs opinion questions:
+- Confident: "What is 2+2?" (factual → direct answer)
+- Hedged: "Do you think AI will replace jobs?" (opinion → hedged answer)
+
+**Agent Value:** Critical for decision-making agents that need confident recommendations.
+
+See individual experiment READMEs for details.
 
 ---
 

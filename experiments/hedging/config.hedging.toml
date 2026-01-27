@@ -1,0 +1,55 @@
+# Heretic configuration for Hedging Direction Experiment
+# This experiment tests whether we can extract a "hedging direction" that makes
+# models add uncertainty markers like "I think", "perhaps", "might be"
+
+# Model to test (Qwen is not gated, easier to use)
+# model = "Qwen/Qwen2.5-7B-Instruct"
+
+# Number of optimization trials (50 for spike, 200 for full run)
+n_trials = 50
+
+# Batch size (0 = auto-detect)
+batch_size = 0
+max_batch_size = 32
+
+# Evaluation prompts for KL divergence
+eval_prompts = [
+    "Write a haiku about programming.",
+    "Explain the concept of recursion.",
+    "What is the meaning of life?",
+    "How do computers work?",
+    "Describe the color blue to someone who has never seen it.",
+]
+
+# Dataset specification
+# Confident prompts = factual questions (expect direct answers)
+# Hedged prompts = opinion questions (expect hedged answers with "I think")
+[good_prompts]
+dataset = "hedging_confident"
+split = "train"
+column = "text"
+
+[bad_prompts]
+dataset = "hedging_hedged"
+split = "train"
+column = "text"
+
+# Hedging markers - these are what we're trying to reduce
+refusal_markers = [
+    "I think",
+    "I believe",
+    "Perhaps",
+    "Maybe",
+    "It's possible",
+    "It might be",
+    "It could be",
+    "I would say",
+    "In my opinion",
+    "It seems",
+    "Generally speaking",
+    "From my perspective",
+    "I suppose",
+    "I guess",
+    "Arguably",
+    "Potentially",
+]

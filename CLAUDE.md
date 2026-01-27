@@ -2,6 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ MANDATORY PRE-ACTION CHECKLIST
+
+**STOP. Before taking ANY action, complete this checklist:**
+
+```
+□ 1. Have I read knowledge.md?
+□ 2. What does the user ACTUALLY want? (Write it down)
+□ 3. What do I ALREADY have? (Check conversation, local files, downloaded models)
+□ 4. Do existing tools handle this? (runpod.ps1, heretic-vast, existing scripts)
+□ 5. Can local hardware do this? (RTX 4070, 8GB VRAM - use 4-bit quantization)
+□ 6. Is cloud NECESSARY? (Default answer: NO)
+□ 7. What's the SIMPLEST approach?
+```
+
+### Anti-Patterns to Avoid
+
+| Trigger | WRONG Response | RIGHT Response |
+|---------|----------------|----------------|
+| "Test model" | Start Vast.ai | Check if results exist locally |
+| "Need GPU" | Rent cloud GPU | Check local 4070 first |
+| "Error occurred" | Try workaround | Fix the actual error |
+| "Compare models" | Load both at once | Sequential with memory clearing |
+| User instruction | Treat as suggestion | Treat as HARD CONSTRAINT |
+
+### Root Causes of Past Failures
+
+1. **Pattern matching instead of thinking** - "test model" → "start Vast.ai" without checking
+2. **Not reading documentation** - Created docs then ignored them
+3. **Prioritizing action over understanding** - Looking productive vs being effective
+4. **Treating user instructions as suggestions** - They are constraints, not options
+
+---
+
 ## Project Overview
 
 Heretic is a tool for **neural behavior modification** in language models using activation direction analysis and Optuna-based optimization. While best known for abliteration (refusal removal), the technique is general and can extract/modify any behavioral direction encoded in model weights.

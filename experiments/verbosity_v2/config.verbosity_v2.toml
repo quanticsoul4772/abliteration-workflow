@@ -1,0 +1,50 @@
+# Heretic configuration for Verbosity v2 Experiment
+# This experiment tests whether we can extract a "padding direction" that makes
+# models add unnecessary detail when asked to "explain in detail"
+
+# Model to test (Qwen is not gated, easier to use)
+# model = "Qwen/Qwen2.5-7B-Instruct"
+
+# Number of optimization trials (50 for spike, 200 for full run)
+n_trials = 50
+
+# Batch size (0 = auto-detect)
+batch_size = 0
+max_batch_size = 32
+
+# Dataset specification
+# Concise prompts = base questions (expect direct answers)
+# Verbose prompts = same questions + "explain in detail" (expect padding)
+[good_prompts]
+dataset = "experiments/verbosity_v2/concise_dataset"
+split = "train"
+column = "text"
+
+[bad_prompts]
+dataset = "experiments/verbosity_v2/verbose_dataset"
+split = "train"
+column = "text"
+
+# Evaluation prompts (use the test split)
+[good_evaluation_prompts]
+dataset = "experiments/verbosity_v2/concise_dataset"
+split = "test"
+column = "text"
+
+[bad_evaluation_prompts]
+dataset = "experiments/verbosity_v2/verbose_dataset"
+split = "test"
+column = "text"
+
+# Refusal markers - for verbosity, we're not looking for refusals
+# but we can detect padding patterns
+refusal_markers = [
+    "Let me explain",
+    "I'll provide",
+    "Here's a detailed",
+    "To fully understand",
+    "It's important to note",
+    "In order to comprehensively",
+    "There are several aspects",
+    "Let me break this down",
+]

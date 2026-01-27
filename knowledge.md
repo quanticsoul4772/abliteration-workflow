@@ -84,6 +84,50 @@ Heretic is a **neural behavior modification workbench**, not just an "uncensorin
 - The ablation appears to reduce verbosity for factual Q&A but doesn't affect elaboration on open-ended topics
 - This is expected: open-ended questions naturally invite longer responses
 
+**Analysis of Results:**
+
+The spike extracted a **"padding direction"** not an **"elaboration direction"**:
+- We removed unnecessary filler on simple questions ✅
+- We preserved appropriate depth on complex questions ✅
+
+**Why the prompts were flawed:**
+- Concise prompts = simple factual questions
+- Verbose prompts = complex open-ended questions
+- This conflates **question complexity** with **verbosity behavior**
+
+**Better approach for v2:**
+- Use SAME questions with different verbosity instructions
+- Example: "What is 2+2?" vs "What is 2+2? Explain in detail."
+- This isolates the padding behavior from question complexity
+
+See `experiments/verbosity_v2/` for improved prompts.
+
+## Active Experiments
+
+| Experiment | Status | Goal | Location |
+|------------|--------|------|----------|
+| **verbosity** | ✅ Complete | Extract padding direction | `experiments/verbosity/` |
+| **verbosity_v2** | 🔄 Ready | Isolate padding from complexity | `experiments/verbosity_v2/` |
+| **hedging** | 🔄 Ready | Extract hedging markers | `experiments/hedging/` |
+| **sycophancy** | 📋 Planned | Extract excessive praise | Future |
+| **meta-commentary** | 📋 Planned | Extract "Let me think..." | Future |
+
+### Quick Start for Experiments
+
+```bash
+# Verbosity v2 (recommended next)
+cd experiments/verbosity_v2
+python load_local_dataset.py
+cp config.verbosity_v2.toml ../../config.toml
+heretic --model Qwen/Qwen2.5-7B-Instruct --auto-select true
+
+# Hedging
+cd experiments/hedging
+python load_local_dataset.py  
+cp config.hedging.toml ../../config.toml
+heretic --model Qwen/Qwen2.5-7B-Instruct --auto-select true
+```
+
 ## Chat App Patterns
 - Model validation: Check for config.json, model weights, and tokenizer files
 - GPU monitoring: Use `torch.cuda.memory_reserved()` for accurate usage
@@ -113,11 +157,36 @@ Heretic is a **neural behavior modification workbench**, not just an "uncensorin
 
 ## CRITICAL GOTCHAS (Lessons Learned)
 
-### BEFORE TAKING ANY ACTION
-1. **READ THIS FILE FIRST** - Check knowledge.md before every task
-2. **Check what you already have** - Don't redo work that's already done
-3. **Use existing tools** - We have scripts (runpod.ps1) and CLIs (heretic-vast) for a reason
-4. **Don't start cloud instances unnecessarily** - Check if local resources can do the job
+### MANDATORY PRE-ACTION CHECKLIST
+
+**STOP. Before taking ANY action, complete this checklist:**
+
+```
+□ 1. Have I read knowledge.md? (You're here - good)
+□ 2. What does the user ACTUALLY want? (Write it down)
+□ 3. What do I ALREADY have? (Check conversation, local files, downloaded models)
+□ 4. Do existing tools handle this? (runpod.ps1, heretic-vast, existing scripts)
+□ 5. Can local hardware do this? (RTX 4070, 8GB VRAM - use 4-bit quantization)
+□ 6. Is cloud NECESSARY? (Default answer: NO)
+□ 7. What's the SIMPLEST approach?
+```
+
+**ANTI-PATTERNS TO RECOGNIZE:**
+
+| Trigger | WRONG Response | RIGHT Response |
+|---------|----------------|----------------|
+| "Test model" | Start Vast.ai | Check if results/model already exist locally |
+| "Need GPU" | Rent cloud GPU | Check if local 4070 can handle it (4-bit) |
+| "Error occurred" | Try workaround | Fix the actual error |
+| "Compare models" | Load both at once | Sequential loading with memory clearing |
+| User gives instruction | Treat as suggestion | Treat as HARD CONSTRAINT |
+
+### ROOT CAUSE OF REPEATED FAILURES
+
+1. **Pattern matching instead of thinking** - Seeing "test model" and jumping to "start Vast.ai" without checking what exists
+2. **Not reading documentation** - Creating docs then ignoring them
+3. **Prioritizing action over understanding** - Looking productive vs being effective
+4. **Treating user instructions as suggestions** - They are constraints, not options
 
 ### Local Hardware
 - **User has RTX 4070 with 8GB VRAM** - Use this for testing when possible
