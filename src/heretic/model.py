@@ -84,8 +84,13 @@ class Model:
             )
 
         # Cache original weights in memory for fast reset (avoids reloading from disk)
-        print("* Caching original weights in memory...")
-        self.original_state_dict = copy.deepcopy(self.model.state_dict())
+        # Disabled for very large models that don't fit in memory twice
+        if settings.cache_weights:
+            print("* Caching original weights in memory...")
+            self.original_state_dict = copy.deepcopy(self.model.state_dict())
+        else:
+            print("* Weight caching disabled (will reload from disk between trials)")
+            self.original_state_dict = None
 
         # Optionally compile the model for faster inference (~1.5-2x speedup)
         if settings.compile:
@@ -95,7 +100,14 @@ class Model:
     def reload_model(self):
         # Fast weight reset from cached state_dict (instead of reloading from disk)
         # This is ~5-10x faster than from_pretrained() for large models
-        self.model.load_state_dict(self.original_state_dict)
+        if self.original_state_dict is not None:
+            self.model.load_state_dict(self.original_state_dict)
+        else:
+            # Reload from disk when weight caching is disabled
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.settings.model,
+                device_map=self.settings.device_map,
+            )
 
     def get_layers(self) -> ModuleList:
         # Most multimodal models.

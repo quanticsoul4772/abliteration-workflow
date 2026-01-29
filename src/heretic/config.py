@@ -71,6 +71,11 @@ class Settings(BaseSettings):
         description="Use torch.compile() to optimize the model for faster inference. Provides ~1.5-2x speedup but has initial compilation overhead.",
     )
 
+    cache_weights: bool = Field(
+        default=True,
+        description="Cache original model weights in memory for fast reset between trials. Disable for very large models (>30B) that don't fit in memory twice.",
+    )
+
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",
