@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import warnings
+from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
 
@@ -279,7 +280,8 @@ def run():
             )
 
         trial.set_user_attr("direction_index", direction_index)
-        trial.set_user_attr("parameters", parameters)
+        # Convert AbliterationParameters to dicts for JSON serialization (required for SQLite storage)
+        trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
 
         print()
         print(
@@ -432,10 +434,15 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
+        # Convert parameters dicts back to AbliterationParameters
+        parameters = {
+            k: AbliterationParameters(**v)
+            for k, v in trial.user_attrs["parameters"].items()
+        }
         model.abliterate(
             refusal_directions,
             trial.user_attrs["direction_index"],
-            trial.user_attrs["parameters"],
+            parameters,
         )
 
         # Determine save path
@@ -526,10 +533,15 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
+        # Convert parameters dicts back to AbliterationParameters
+        parameters = {
+            k: AbliterationParameters(**v)
+            for k, v in trial.user_attrs["parameters"].items()
+        }
         model.abliterate(
             refusal_directions,
             trial.user_attrs["direction_index"],
-            trial.user_attrs["parameters"],
+            parameters,
         )
 
         while True:
