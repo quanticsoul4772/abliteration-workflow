@@ -71,6 +71,7 @@ class Model:
                 continue
 
             print("[green]Ok[/]")
+            self.loaded_dtype = dtype  # Store successful dtype for potential reload
             break
 
         if self.model is None:
@@ -106,6 +107,7 @@ class Model:
             # Reload from disk when weight caching is disabled
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.settings.model,
+                dtype=self.loaded_dtype,
                 device_map=self.settings.device_map,
             )
 
