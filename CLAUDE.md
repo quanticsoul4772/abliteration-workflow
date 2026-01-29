@@ -2,7 +2,27 @@
 
 ## ⛔ STOP - YOU MUST READ THIS FIRST ⛔
 
-**BEFORE ANY ACTION, READ: `knowledge.md` and `WORKFLOW.md`**
+**BEFORE ANY ACTION, READ: `WORKING_COMMANDS.md`, `knowledge.md` and `WORKFLOW.md`**
+
+## ⚠️ WORKING COMMANDS - USE THESE ⚠️
+
+**The PowerShell scripts (runpod.ps1, start-abliteration.ps1) have issues. USE THE PYTHON CLI INSTEAD:**
+
+```bash
+# Use heretic-vast CLI (Python) - THIS WORKS
+uv run heretic-vast list              # Check instances
+uv run heretic-vast create RTX_4090 4 # Create 4x RTX 4090
+uv run heretic-vast setup             # Install heretic
+uv run heretic-vast watch             # Monitor progress
+uv run heretic-vast stop              # Stop instance
+```
+
+**Full training command with RESUME SUPPORT:**
+```bash
+uv run heretic-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/heretic_study.db --study-name qwen32b-abliteration > /workspace/heretic.log 2>&1 &"
+```
+
+See `WORKING_COMMANDS.md` for full documentation.
 
 **YOU HAVE REPEATEDLY FAILED BY:**
 - Using manual SSH commands instead of `heretic-vast` CLI
