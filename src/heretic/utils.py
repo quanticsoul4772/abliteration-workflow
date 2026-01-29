@@ -118,7 +118,8 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     )
 
     for component, parameters in trial.user_attrs["parameters"].items():
-        for name, value in asdict(parameters).items():
+        # parameters is already a dict (serialized for SQLite storage)
+        for name, value in parameters.items():
             params[f"{component}.{name}"] = f"{value:.2f}"
 
     return params
