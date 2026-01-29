@@ -205,6 +205,62 @@ Heretic uses **activation direction analysis** to find and remove behavioral ten
 
 This technique is general - it works for any behavior encoded as a direction in activation space.
 
+## Web Search Feature
+
+The chat interface includes automatic web search capabilities to augment responses with current information.
+
+### How It Works
+
+The WebSearcher automatically detects when your question needs current information and searches the web:
+
+```
+User: "What's the current price of Bitcoin?"
+🔍 Searching the web...
+🔍 *Found 5 web results*
+
+Based on the search results, Bitcoin is currently trading at...
+```
+
+### Automatic vs Explicit Search
+
+**Automatic Search** triggers when your message contains:
+- Time-sensitive words: "today", "current", "latest", "recent"
+- Information requests: "news", "update", "trending"
+- Questions about dynamic data: "price", "weather", "score"
+- Direct requests: "search for", "look up", "find out"
+
+**Explicit Search** using the `/search` command:
+```
+/search latest AI news
+/search python 3.13 release date
+/search weather in Tokyo
+```
+
+### Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Backend | DuckDuckGo | No API key required |
+| Region | Worldwide (`wt-wt`) | No regional bias |
+| Max Results | 5 | Results per search |
+| Enable/Disable | Checkbox in UI | Toggle in Advanced Settings |
+
+### Failure Handling
+
+Web search is designed to fail gracefully:
+
+- **Search fails:** Model answers without web context, shows warning
+- **No results:** Model acknowledges search was attempted but found nothing
+- **Network issues:** Treated as search failure, continues without results
+
+The chat will never crash due to search issues - it simply continues without web augmentation.
+
+### Disabling Web Search
+
+In the chat interface, expand "Advanced Settings" and uncheck "Enable Web Search" to disable automatic searches. You can still use `/search` for explicit searches when needed.
+
+---
+
 ## Chat Interface
 
 Heretic includes a sophisticated chat interface for interacting with your abliterated models.

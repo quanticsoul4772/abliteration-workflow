@@ -151,7 +151,79 @@ AVAILABLE_MODELS: dict[str, str] = {}
 
 
 class WebSearcher:
-    """Handles web searches using DuckDuckGo."""
+    """Handles web searches using DuckDuckGo for the chat interface.
+
+    This class provides automatic and explicit web search capabilities to augment
+    chat responses with current information from the web.
+
+    Backend Strategy
+    ----------------
+    - **Primary:** DuckDuckGo (reliable, no API key required)
+    - **Library:** Uses the `ddgs` package (DuckDuckGo Search)
+    - **Fallback:** Currently none - if DuckDuckGo fails, search is skipped
+      and the model answers without web context
+
+    Region Configuration
+    --------------------
+    - **Default:** 'wt-wt' (worldwide results, no regional bias)
+    - **Override:** Modify the `region` parameter in the `search()` method
+    - **Available regions:** Country codes like 'us-en' (US English),
+      'uk-en' (UK English), 'de-de' (Germany), etc.
+
+    Automatic Search Triggering
+    ---------------------------
+    The WebSearcher automatically detects when a query would benefit from
+    web search by looking for patterns indicating need for current information:
+
+    - **Time-sensitive words:** "today", "tonight", "yesterday", "this week"
+    - **Currency words:** "current", "latest", "recent", "now", "new"
+    - **Info request words:** "news", "update", "happening", "trending"
+    - **Question patterns:** "who is", "what is", "where is", "when is"
+    - **Dynamic data:** "price", "stock", "weather", "score", "result"
+    - **Explicit requests:** "search", "look up", "find out", "google"
+
+    Explicit Search Command
+    -----------------------
+    Users can force a search with the `/search` command:
+        `/search latest AI news`
+        `/search python 3.13 release date`
+
+    Failure Modes
+    -------------
+    - **Backend unavailable:** WebSearchError raised, caught by chat handler.
+      Model continues to answer without search results. User sees warning.
+    - **No results returned:** Empty list returned with "[No results]" message
+      injected into context so model knows search was attempted.
+    - **Network timeout:** Treated as backend unavailable (graceful degradation).
+    - **Rate limiting:** Currently fails (future enhancement: exponential backoff).
+
+    Search Result Format
+    --------------------
+    Results are formatted and injected into the conversation context:
+        [Web Search Results for 'query':]
+
+        1. Title of Result
+           URL: https://example.com/page
+           Snippet of relevant content...
+
+        [Use the above search results to help answer the user's question.]
+
+    Example Usage
+    -------------
+    >>> searcher = WebSearcher(max_results=5)
+    >>> if searcher.should_search("What's the weather in NYC?"):
+    ...     results = searcher.search("weather NYC")
+    ...     context = searcher.format_results_for_context(results, "weather NYC")
+
+    Attributes
+    ----------
+    max_results : int
+        Maximum number of search results to return (default: 5)
+    CURRENT_INFO_PATTERNS : list[str]
+        Regex patterns for detecting queries needing current information
+    QUERY_CLEANUP_PATTERNS : list[str]
+        Regex patterns for cleaning natural language queries into search terms
+    """
 
     # Keywords that suggest the user wants current/recent information
     CURRENT_INFO_PATTERNS: list[str] = [
