@@ -23,3 +23,14 @@ wheels/
 
 # RunPod tools (downloaded separately)
 runpodctl.exe
+
+# Model directories (large files, not for git)
+models/
+Qwen2.5-7B-Instruct-heretic/
+abliterated-qwen2.5-7b/
+
+# Temporary/build artifacts
+.coverage
+*.tar.gz
+temp_config.toml
+nul
