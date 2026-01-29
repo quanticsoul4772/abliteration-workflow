@@ -22,7 +22,7 @@ from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+# Progress imports removed - were unused
 from rich.table import Table
 from rich.text import Text
 
@@ -208,7 +208,7 @@ def get_instances(config: VastConfig) -> list[dict]:
     try:
         return json.loads(stdout)
     except json.JSONDecodeError:
-        console.print(f"[yellow]Warning: Could not parse API response[/]")
+        console.print("[yellow]Warning: Could not parse API response[/]")
         return []
 
 
@@ -419,7 +419,7 @@ def create_pod(ctx, tier: str, num_gpus: int):
     max_price = tier_config["max_price"] * num_gpus
 
     if num_gpus > 1:
-        disk_gb = max(disk_gb, 200)
+        disk_gb = max(disk_gb, 400)  # 32B+ models need more space for weights + cache
 
     console.print()
     console.print(Panel.fit(
@@ -763,12 +763,12 @@ def show_progress(ctx, instance_id: Optional[str]):
         console.print("\n[bold]Process Status[/]")
         proc = run_ssh_command(conn, "ps aux | grep '[h]eretic' | head -1")
         if proc.strip():
-            console.print(f"  [green]● Running[/]")
+            console.print("  [green]● Running[/]")
             # Extract model name if possible
             if "--model" in proc or "/" in proc:
                 console.print(f"  {proc.strip()[:100]}...")
         else:
-            console.print(f"  [yellow]○ Not running[/]")
+            console.print("  [yellow]○ Not running[/]")
 
         # GPU status
         console.print("\n[bold]GPU Status[/]")
