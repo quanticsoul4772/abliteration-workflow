@@ -208,3 +208,30 @@ git push fork master
 6. **Vast.ai is 50% cheaper** than RunPod
 7. **Monitor with `vast-watch`** for live dashboard
 8. **Stop instance when done** - billing continues until stopped!
+
+---
+
+## ⛔ CRITICAL: DO NOT DO THESE THINGS ⛔
+
+### NEVER judge instance status by uptime
+- Vast.ai shared GPUs show ACCUMULATED uptime from all users
+- An instance showing "47 hours" might have just started YOUR session
+- **ONLY check if heretic process is running, NOT the uptime**
+
+### NEVER create a new instance without explicit permission
+- If user says "wait" - WAIT
+- If instance is "loading" - WAIT
+- If you're not sure - ASK
+- **DO NOT assume an instance is stuck**
+
+### NEVER take destructive actions without asking
+- Don't stop instances
+- Don't terminate instances  
+- Don't create new instances
+- **ALWAYS ASK FIRST**
+
+### When user says STOP - STOP IMMEDIATELY
+- Don't spawn more agents
+- Don't make more tool calls
+- Don't try to "fix" anything
+- Just STOP and LISTEN
