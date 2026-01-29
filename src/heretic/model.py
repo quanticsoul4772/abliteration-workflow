@@ -219,6 +219,21 @@ class Model:
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(num_layers):
+            # Compute per-layer projector once per layer (outside component loop)
+            if global_projector is not None:
+                projector = global_projector
+            else:
+                # Per-layer direction: compute projector for this layer
+                # The index must be shifted by 1 because the first element
+                # of refusal_directions is the direction for the embeddings.
+                layer_refusal_direction = refusal_directions[layer_index + 1]
+                projector = torch.outer(
+                    layer_refusal_direction,
+                    layer_refusal_direction,
+                ).to(self.model.dtype)
+                # Clear the per-layer projector cache since projector changed
+                device_projectors_cache.clear()
+
             for component, matrices in layer_matrices_cache[layer_index].items():
                 params = parameters[component]
 
@@ -234,21 +249,6 @@ class Model:
                 weight = params.max_weight + (distance / params.min_weight_distance) * (
                     params.min_weight - params.max_weight
                 )
-
-                if global_projector is not None:
-                    # Use pre-computed global projector
-                    projector = global_projector
-                else:
-                    # Per-layer direction: compute projector for this layer
-                    # The index must be shifted by 1 because the first element
-                    # of refusal_directions is the direction for the embeddings.
-                    layer_refusal_direction = refusal_directions[layer_index + 1]
-                    projector = torch.outer(
-                        layer_refusal_direction,
-                        layer_refusal_direction,
-                    ).to(self.model.dtype)
-                    # Clear the per-layer projector cache since projector changed
-                    device_projectors_cache.clear()
 
                 for matrix in matrices:
                     # Reuse cached projector per device to prevent memory accumulation
