@@ -1,4 +1,26 @@
-# ⛔ STOP: Read this file and WORKFLOW.md FIRST. Use `heretic-vast` CLI, not SSH. ⛔
+# ⛔ STOP: Read RUNBOOK.md FIRST ⛔
+
+## ⛔ CRITICAL - MEMORIZE THESE ⛔
+
+### Git: ALWAYS push to `fork` (abliteration-workflow)
+```powershell
+git push fork master   # ✅ CORRECT
+git push heretic-fork  # ❌ WRONG - causes split repos
+```
+
+### Resume Support: ALWAYS use these flags
+```
+--storage sqlite:////workspace/heretic_study.db
+--study-name qwen32b-abliteration
+```
+
+### Quick Start
+```powershell
+cd C:\Development\Projects\heretic
+.\start-abliteration.ps1
+```
+
+---
 
 ## ⛔ STOP - READ THIS FIRST ⛔
 
