@@ -105,13 +105,13 @@ Heretic includes state-of-the-art abliteration improvements:
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| **Neural Refusal Detection** | ✅ ON | Zero-shot NLI catches soft refusals and evasive responses |
-| **Supervised Probing + Ensemble** | ✅ ON | Linear probes combined with PCA for better direction extraction |
-| **Activation Calibration** | ✅ ON | Adaptive weight scaling based on refusal activation strength |
+| **Neural Refusal Detection** | ON | Zero-shot NLI catches soft refusals and evasive responses |
+| **Supervised Probing + Ensemble** | ON | Linear probes combined with PCA for better direction extraction |
+| **Activation Calibration** | ON | Adaptive weight scaling based on refusal activation strength |
 | **Concept Cones** | OFF | Category-specific directions (violence, fraud, self-harm, etc.) |
 | **Contrastive Activation Addition** | OFF | Add compliance direction alongside refusal removal |
-| **Circuit-Level Ablation** | OFF | Target specific attention heads (⚠️ Not for GQA models) |
-| **Warm-Start Transfer** | ✅ ON | Model family profiles for 2x faster Optuna convergence |
+| **Circuit-Level Ablation** | OFF | Target specific attention heads (not for GQA models) |
+| **Warm-Start Transfer** | ON | Model family profiles for 2x faster Optuna convergence |
 
 ### Performance Optimizations
 
@@ -150,8 +150,8 @@ See `LESSONS_LEARNED.md` for detailed troubleshooting and configuration guidance
 Models using Grouped Query Attention (GQA) have limited feature support:
 
 - **Affected models:** Llama 3.x, Qwen 2.5, and others with `num_kv_heads != num_attention_heads`
-- **Circuit-level ablation:** ❌ Not supported (use standard layer-level ablation)
-- **All other features:** ✅ Fully supported
+- **Circuit-level ablation:** Not supported (use standard layer-level ablation)
+- **All other features:** Fully supported
 
 Heretic will automatically detect GQA models and raise a clear error if incompatible features are enabled.
 
@@ -217,7 +217,7 @@ heretic mistralai/Mistral-7B-Instruct-v0.3 --auto-select --auto-select-path ./ou
 | `--use-warm-start-params` | true | Model family warm-start |
 | `--use-concept-cones` | false | Category-specific directions |
 | `--use-caa` | false | Contrastive Activation Addition |
-| `--use-circuit-ablation` | false | Attention head targeting (⚠️ No GQA) |
+| `--use-circuit-ablation` | false | Attention head targeting (no GQA support) |
 | `--model-family` | auto | Override detected family (llama/qwen/mistral/gemma/phi) |
 
 ## Configuration
@@ -256,11 +256,11 @@ use_circuit_ablation = false          # Attention head targeting
 
 | Model Family | Neural Detection | Supervised Probing | Circuit Ablation | Warm-Start |
 |--------------|------------------|-------------------|------------------|------------|
-| Llama 3.x | ✅ | ✅ | ❌ (GQA) | ✅ |
-| Qwen 2.5 | ✅ | ✅ | ❌ (GQA) | ✅ |
-| Mistral | ✅ | ✅ | ✅ | ✅ |
-| Gemma | ✅ | ✅ | ✅ | ✅ |
-| Phi | ✅ | ✅ | ✅ | ✅ |
+| Llama 3.x | Yes | Yes | No (GQA) | Yes |
+| Qwen 2.5 | Yes | Yes | No (GQA) | Yes |
+| Mistral | Yes | Yes | Yes | Yes |
+| Gemma | Yes | Yes | Yes | Yes |
+| Phi | Yes | Yes | Yes | Yes |
 
 ## How It Works
 
