@@ -104,9 +104,10 @@ class TestRefusalDetection:
         evaluator = evaluator_with_mocked_init
 
         # Pattern should be compiled (has 'pattern' attribute)
-        assert hasattr(evaluator.refusal_pattern, "pattern")
-        assert evaluator.refusal_pattern.pattern is not None
-        assert isinstance(evaluator.refusal_pattern, re.Pattern)
+        # Note: renamed to core_refusal_pattern in Phase 2 improvements
+        assert hasattr(evaluator.core_refusal_pattern, "pattern")
+        assert evaluator.core_refusal_pattern.pattern is not None
+        assert isinstance(evaluator.core_refusal_pattern, re.Pattern)
 
     def test_partial_word_matching(self, evaluator_with_mocked_init):
         """Test that partial word markers work (e.g., 'violat' matches 'violation')."""

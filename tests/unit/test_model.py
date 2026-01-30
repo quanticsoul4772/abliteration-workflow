@@ -543,7 +543,7 @@ class TestModelLogprobs:
 
         call_count = [0]
 
-        def mock_get_logprobs(prompts):
+        def mock_get_logprobs(prompts, n_tokens=1):
             call_count[0] += 1
             if call_count[0] == 1:
                 return batch1_logprobs
