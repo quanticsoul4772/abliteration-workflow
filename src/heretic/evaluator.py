@@ -20,22 +20,28 @@ class Evaluator:
         normalized_markers = [m.lower() for m in settings.refusal_markers]
         pattern = "|".join(re.escape(marker) for marker in normalized_markers)
         self.core_refusal_pattern = re.compile(pattern, re.IGNORECASE)
-        
+
         # Phase 2: Compile soft refusal pattern
         soft_markers = [m.lower() for m in settings.soft_refusal_markers]
         soft_pattern = "|".join(re.escape(marker) for marker in soft_markers)
         self.soft_refusal_pattern = re.compile(soft_pattern, re.IGNORECASE)
-        
+
         # Phase 2: Compile evasive response patterns (already regex)
         if settings.evasive_patterns:
             evasive_combined = "|".join(f"({p})" for p in settings.evasive_patterns)
             self.evasive_pattern = re.compile(evasive_combined, re.IGNORECASE)
         else:
             self.evasive_pattern = None
-        
+
         # Determine detection mode from settings
-        self._detect_soft = settings.detect_soft_refusals or settings.refusal_detection_mode in ["moderate", "lenient"]
-        self._detect_evasive = settings.detect_evasive_responses or settings.refusal_detection_mode == "lenient"
+        self._detect_soft = (
+            settings.detect_soft_refusals
+            or settings.refusal_detection_mode in ["moderate", "lenient"]
+        )
+        self._detect_evasive = (
+            settings.detect_evasive_responses
+            or settings.refusal_detection_mode == "lenient"
+        )
 
         print()
         print(
@@ -48,7 +54,9 @@ class Evaluator:
         self.kl_tokens = settings.kl_divergence_tokens
         token_desc = "first-token" if self.kl_tokens == 1 else f"{self.kl_tokens}-token"
         print(f"* Obtaining {token_desc} probability distributions...")
-        self.base_logprobs = model.get_logprobs_batched(self.good_prompts, n_tokens=self.kl_tokens)
+        self.base_logprobs = model.get_logprobs_batched(
+            self.good_prompts, n_tokens=self.kl_tokens
+        )
 
         print()
         print(
@@ -65,7 +73,7 @@ class Evaluator:
 
     def is_refusal(self, response: str) -> bool:
         """Check if response is a refusal.
-        
+
         Detection modes:
         - strict: Core markers only (original behavior)
         - moderate: Core + soft refusal markers
@@ -80,15 +88,19 @@ class Evaluator:
         # Check core markers (always checked)
         if self.core_refusal_pattern.search(response):
             return True
-        
+
         # Phase 2: Check soft refusals if enabled
         if self._detect_soft and self.soft_refusal_pattern.search(response):
             return True
-        
+
         # Phase 2: Check evasive patterns if enabled
-        if self._detect_evasive and self.evasive_pattern and self.evasive_pattern.search(response):
+        if (
+            self._detect_evasive
+            and self.evasive_pattern
+            and self.evasive_pattern.search(response)
+        ):
             return True
-        
+
         return False
 
     def count_refusals(self) -> int:
@@ -103,11 +115,13 @@ class Evaluator:
 
     def _compute_kl_divergence(self) -> float:
         """Compute KL divergence from base model (for parallel execution).
-        
+
         Phase 3: Supports multi-token KL divergence for better capability measurement.
         """
-        logprobs = self.model.get_logprobs_batched(self.good_prompts, n_tokens=self.kl_tokens)
-        
+        logprobs = self.model.get_logprobs_batched(
+            self.good_prompts, n_tokens=self.kl_tokens
+        )
+
         if self.kl_tokens == 1:
             # Original single-token behavior
             return F.kl_div(
@@ -125,7 +139,7 @@ class Evaluator:
                 reduction="none",
                 log_target=True,
             ).sum(dim=-1)  # Sum over vocab, shape: (n_prompts, n_tokens)
-            
+
             # Mean over tokens and prompts
             return kl_per_token.mean().item()
 

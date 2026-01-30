@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
+
 # Progress imports removed - were unused
 from rich.table import Table
 from rich.text import Text
@@ -29,6 +30,7 @@ from rich.text import Text
 # Lazy imports for fabric to avoid import errors if not installed
 try:
     from fabric import Connection
+
     FABRIC_AVAILABLE = True
 except ImportError:
     FABRIC_AVAILABLE = False
@@ -89,45 +91,47 @@ MODELS_DIR = "/workspace/models"
 
 # Regex pattern for valid API keys (alphanumeric, hyphens, underscores only)
 # This prevents command injection when passing keys through shell (especially WSL)
-API_KEY_PATTERN = re.compile(r'^[A-Za-z0-9_-]+$')
+API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class APIKeyValidationError(ValueError):
     """Raised when an API key contains invalid characters."""
+
     pass
 
 
 def validate_api_key(api_key: str) -> bool:
     """Validate that an API key contains only safe characters.
-    
+
     This prevents command injection vulnerabilities when the API key
     is passed through shell commands (especially via WSL).
-    
+
     Args:
         api_key: The API key to validate.
-        
+
     Returns:
         True if valid, raises APIKeyValidationError if invalid.
-        
+
     Raises:
         APIKeyValidationError: If the API key contains shell metacharacters.
     """
     if not api_key:
         return True  # Empty keys are allowed (will fail later with clear message)
-    
+
     if not API_KEY_PATTERN.match(api_key):
         raise APIKeyValidationError(
             "VAST_API_KEY contains invalid characters. "
             "Only alphanumeric characters, hyphens, and underscores are allowed. "
             "This prevents command injection when using WSL."
         )
-    
+
     return True
 
 
 @dataclass
 class VastConfig:
     """Configuration for Vast.ai connection."""
+
     api_key: str
     instance_id: Optional[str] = None
     ssh_host: Optional[str] = None
@@ -137,7 +141,7 @@ class VastConfig:
     @classmethod
     def from_env(cls) -> "VastConfig":
         """Load configuration from environment variables and .env file.
-        
+
         Raises:
             APIKeyValidationError: If VAST_API_KEY contains shell metacharacters.
         """
@@ -154,10 +158,10 @@ class VastConfig:
                         os.environ.setdefault(key, value)
 
         api_key = os.environ.get("VAST_API_KEY", "")
-        
+
         # SECURITY: Validate API key format to prevent command injection
         validate_api_key(api_key)
-        
+
         return cls(
             api_key=api_key,
             local_models_dir=os.environ.get("LOCAL_MODELS_DIR", "./models"),
@@ -167,7 +171,9 @@ class VastConfig:
 def find_vastai_cli() -> list[str]:
     """Find the vastai CLI executable. Returns command prefix list."""
     # Check for vast.exe in current directory or script directory
-    script_dir = Path(__file__).parent.parent.parent  # Go up from src/heretic to project root
+    script_dir = Path(
+        __file__
+    ).parent.parent.parent  # Go up from src/heretic to project root
     for vast_path in [
         Path("vast.exe"),
         Path("vast"),
@@ -176,14 +182,14 @@ def find_vastai_cli() -> list[str]:
     ]:
         if vast_path.exists():
             return [str(vast_path.absolute())]
-    
+
     # Check if vastai is in PATH
     if shutil.which("vastai"):
         return ["vastai"]
-    
+
     if shutil.which("vast"):
         return ["vast"]
-    
+
     # On Windows, try WSL
     if sys.platform == "win32":
         # Check if WSL is available
@@ -202,7 +208,7 @@ def find_vastai_cli() -> list[str]:
                     return ["wsl", "-e", "vastai"]
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
-    
+
     # Default - will fail but with a clear error
     return ["vastai"]
 
@@ -215,21 +221,33 @@ def run_vastai_cmd(args: list[str], config: VastConfig) -> tuple[int, str, str]:
     else:
         # Check if API key might be missing
         if not os.environ.get("VAST_API_KEY"):
-            return 1, "", "VAST_API_KEY not set. Add it to .env file or set environment variable."
+            return (
+                1,
+                "",
+                "VAST_API_KEY not set. Add it to .env file or set environment variable.",
+            )
 
     cmd_prefix = find_vastai_cli()
-    
+
     # If using WSL, we need to pass the API key explicitly since WSL has its own env
     if cmd_prefix and cmd_prefix[0] == "wsl" and config.api_key:
         # Modify command to pass env var through WSL
         # Escape any special characters in the API key
         escaped_key = config.api_key.replace("'", "'\"'\"'")
-        cmd = ["wsl", "-e", "bash", "-c", f"VAST_API_KEY='{escaped_key}' vastai {' '.join(args)}"]
+        cmd = [
+            "wsl",
+            "-e",
+            "bash",
+            "-c",
+            f"VAST_API_KEY='{escaped_key}' vastai {' '.join(args)}",
+        ]
     else:
         cmd = cmd_prefix + args
-    
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, env=env, timeout=120
+        )
         return result.returncode, result.stdout, result.stderr
     except FileNotFoundError:
         error_msg = (
@@ -272,22 +290,24 @@ def get_running_instance(config: VastConfig) -> Optional[dict]:
     return instances[0] if instances else None
 
 
-def get_ssh_info(instance_id: str, config: VastConfig, verbose: bool = False) -> Optional[tuple[str, int]]:
+def get_ssh_info(
+    instance_id: str, config: VastConfig, verbose: bool = False
+) -> Optional[tuple[str, int]]:
     """Get SSH host and port for an instance.
-    
+
     Handles multiple SSH URL formats from Vast.ai:
     - ssh://root@ssh1.vast.ai:35702
-    - ssh://root@192.168.1.1:35702  
+    - ssh://root@192.168.1.1:35702
     - ssh -p 35702 root@192.168.1.1
     - ssh -p 35702 root@ssh1.vast.ai
     """
     code, stdout, stderr = run_vastai_cmd(["ssh-url", str(instance_id)], config)
-    
+
     if verbose:
         console.print(f"[dim]SSH URL response (code={code}): {stdout.strip()}[/]")
         if stderr:
             console.print(f"[dim]SSH URL stderr: {stderr.strip()}[/]")
-    
+
     if code != 0:
         if verbose or stderr:
             console.print(f"[red]Failed to get SSH URL for instance {instance_id}[/]")
@@ -307,19 +327,21 @@ def get_ssh_info(instance_id: str, config: VastConfig, verbose: bool = False) ->
     match = re.search(r"-p\s+(\d+)\s+([^@]+)@([\d.]+)", stdout)
     if match:
         return match.group(3), int(match.group(1))
-    
+
     # Format 3: ssh -p PORT user@hostname (hostname like ssh1.vast.ai)
     match = re.search(r"-p\s+(\d+)\s+([^@]+)@(\S+)", stdout)
     if match:
         return match.group(3), int(match.group(1))
-    
+
     # Format 4: user@host:port without ssh:// prefix
     match = re.search(r"([^@]+)@([^:]+):(\d+)", stdout)
     if match:
         return match.group(2), int(match.group(3))
 
     if verbose:
-        console.print(f"[yellow]Warning: Could not parse SSH URL format: {stdout.strip()}[/]")
+        console.print(
+            f"[yellow]Warning: Could not parse SSH URL format: {stdout.strip()}[/]"
+        )
     return None
 
 
@@ -364,7 +386,7 @@ def get_connection(instance_id: str, config: VastConfig) -> Optional["Connection
 
 def run_ssh_command(conn: "Connection", command: str, hide: bool = True) -> str:
     """Run a command via SSH and return stdout.
-    
+
     Returns empty string on connection errors (network issues, timeouts, etc.).
     """
     try:
@@ -472,14 +494,16 @@ def create_pod(ctx, tier: str, num_gpus: int):
         disk_gb = max(disk_gb, 400)  # 32B+ models need more space for weights + cache
 
     console.print()
-    console.print(Panel.fit(
-        f"[bold]Creating Vast.ai Instance[/]\n\n"
-        f"GPU Tier: [cyan]{tier}[/] ({tier_config['description']})\n"
-        f"Num GPUs: [cyan]{num_gpus}[/]\n"
-        f"Disk: [cyan]{disk_gb} GB[/]\n"
-        f"Max price: [cyan]${max_price}/hr[/]",
-        title="Configuration",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Creating Vast.ai Instance[/]\n\n"
+            f"GPU Tier: [cyan]{tier}[/] ({tier_config['description']})\n"
+            f"Num GPUs: [cyan]{num_gpus}[/]\n"
+            f"Disk: [cyan]{disk_gb} GB[/]\n"
+            f"Max price: [cyan]${max_price}/hr[/]",
+            title="Configuration",
+        )
+    )
 
     # Find best offer
     console.print("\n[yellow]Finding best GPU offer...[/]")
@@ -527,9 +551,13 @@ def create_pod(ctx, tier: str, num_gpus: int):
     console.print("\n[yellow]Creating instance...[/]")
     code, stdout, stderr = run_vastai_cmd(
         [
-            "create", "instance", str(offer_id),
-            "--image", DEFAULT_IMAGE,
-            "--disk", str(disk_gb),
+            "create",
+            "instance",
+            str(offer_id),
+            "--image",
+            DEFAULT_IMAGE,
+            "--disk",
+            str(disk_gb),
             "--ssh",
             "--raw",
         ],
@@ -543,6 +571,7 @@ def create_pod(ctx, tier: str, num_gpus: int):
         instance_id = result.get("new_contract")
     except json.JSONDecodeError:
         import re
+
         match = re.search(r"(\d+)", stdout)
         if match:
             instance_id = match.group(1)
@@ -565,18 +594,20 @@ def create_pod(ctx, tier: str, num_gpus: int):
             host, port = ssh_info
             console.print()
             console.print()
-            console.print(Panel.fit(
-                f"[bold green]Instance Ready![/]\n\n"
-                f"Instance ID: [cyan]{instance_id}[/]\n"
-                f"SSH Host: [cyan]{host}[/]\n"
-                f"SSH Port: [cyan]{port}[/]\n\n"
-                f"Next steps:\n"
-                f"  heretic-vast setup    # Install heretic\n"
-                f"  heretic-vast run MODEL  # Abliterate\n"
-                f"  heretic-vast stop     # Stop when done",
-                title="Success",
-                border_style="green",
-            ))
+            console.print(
+                Panel.fit(
+                    f"[bold green]Instance Ready![/]\n\n"
+                    f"Instance ID: [cyan]{instance_id}[/]\n"
+                    f"SSH Host: [cyan]{host}[/]\n"
+                    f"SSH Port: [cyan]{port}[/]\n\n"
+                    f"Next steps:\n"
+                    f"  heretic-vast setup    # Install heretic\n"
+                    f"  heretic-vast run MODEL  # Abliterate\n"
+                    f"  heretic-vast stop     # Stop when done",
+                    title="Success",
+                    border_style="green",
+                )
+            )
             return
 
     console.print("\n[yellow]Instance created but SSH not ready yet.[/]")
@@ -607,10 +638,12 @@ def setup_instance(ctx, instance_id: Optional[str]):
             return
         instance_id = str(inst["id"])
 
-    console.print(Panel.fit(
-        f"Setting up Heretic on Vast.ai\n\nInstance ID: [cyan]{instance_id}[/]",
-        title="Setup",
-    ))
+    console.print(
+        Panel.fit(
+            f"Setting up Heretic on Vast.ai\n\nInstance ID: [cyan]{instance_id}[/]",
+            title="Setup",
+        )
+    )
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -624,11 +657,15 @@ def setup_instance(ctx, instance_id: Optional[str]):
             return
 
         status.update("[bold green]Installing git...")
-        run_ssh_command(conn, "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1")
+        run_ssh_command(
+            conn, "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1"
+        )
         console.print("  [green]✓[/] git installed")
 
         status.update("[bold green]Configuring workspace...")
-        run_ssh_command(conn, "mkdir -p /workspace/.cache/huggingface /workspace/models")
+        run_ssh_command(
+            conn, "mkdir -p /workspace/.cache/huggingface /workspace/models"
+        )
         run_ssh_command(conn, "export HF_HOME=/workspace/.cache/huggingface")
         run_ssh_command(
             conn,
@@ -675,13 +712,15 @@ def run_abliteration(ctx, model: str, instance_id: Optional[str]):
     model_name = model.replace("/", "-")
     output_path = f"{MODELS_DIR}/{model_name}-heretic"
 
-    console.print(Panel.fit(
-        f"Running Heretic Abliteration\n\n"
-        f"Model: [cyan]{model}[/]\n"
-        f"Output: [cyan]{output_path}[/]\n"
-        f"Instance: [cyan]{instance_id}[/]",
-        title="Abliteration",
-    ))
+    console.print(
+        Panel.fit(
+            f"Running Heretic Abliteration\n\n"
+            f"Model: [cyan]{model}[/]\n"
+            f"Output: [cyan]{output_path}[/]\n"
+            f"Instance: [cyan]{instance_id}[/]",
+            title="Abliteration",
+        )
+    )
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -690,7 +729,9 @@ def run_abliteration(ctx, model: str, instance_id: Optional[str]):
     try:
         conn.open()
         console.print("\n[yellow]Starting abliteration (this will take a while)...[/]")
-        console.print("[dim]Run 'heretic-vast watch' in another terminal to monitor progress[/]")
+        console.print(
+            "[dim]Run 'heretic-vast watch' in another terminal to monitor progress[/]"
+        )
         console.print()
 
         # Run heretic with live output
@@ -834,7 +875,9 @@ def show_progress(ctx, instance_id: Optional[str]):
                         name, util, mem_used, mem_total = parts[:4]
                         mem_used_gb = round(int(mem_used) / 1024, 1)
                         mem_total_gb = round(int(mem_total) / 1024, 1)
-                        console.print(f"  GPU {i}: {name} - {util}% util, {mem_used_gb}/{mem_total_gb} GB")
+                        console.print(
+                            f"  GPU {i}: {name} - {util}% util, {mem_used_gb}/{mem_total_gb} GB"
+                        )
                     except ValueError:
                         pass
 
@@ -894,7 +937,10 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
                 "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits",
             )
             models = run_ssh_command(conn, f"ls -1 {MODELS_DIR}/ 2>/dev/null | head -5")
-            disk = run_ssh_command(conn, "df -h /workspace 2>/dev/null | tail -1 | awk '{print $3\"/\"$2\" (\"$5\" used)}'")
+            disk = run_ssh_command(
+                conn,
+                'df -h /workspace 2>/dev/null | tail -1 | awk \'{print $3"/"$2" ("$5" used)}\'',
+            )
         except (OSError, TimeoutError, EOFError):
             # Connection errors: socket issues, timeouts, connection closed
             proc = ""
@@ -917,7 +963,9 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
         # Header
         header_text = Text()
         header_text.append("VAST.AI ABLITERATION DASHBOARD", style="bold cyan")
-        header_text.append(f"  │  Instance: {instance_id}  │  Time: {current_time}  │  Watch: {elapsed_str}")
+        header_text.append(
+            f"  │  Instance: {instance_id}  │  Time: {current_time}  │  Watch: {elapsed_str}"
+        )
         layout["header"].update(Panel(header_text, style="cyan"))
 
         # Process panel
@@ -927,19 +975,24 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
 
         if proc.strip():
             process_table.add_row("Status", "[green]● RUNNING[/]")
-            
+
             # Extract model name from command line (e.g., "heretic Qwen/Qwen2.5-72B-Instruct")
             # Look for pattern after "heretic" that looks like a HuggingFace model
-            model_match = re.search(r"heretic\s+(?:--model\s+)?([A-Za-z0-9_-]+/[A-Za-z0-9._-]+)", proc)
+            model_match = re.search(
+                r"heretic\s+(?:--model\s+)?([A-Za-z0-9_-]+/[A-Za-z0-9._-]+)", proc
+            )
             if model_match:
                 process_table.add_row("Model", f"[cyan]{model_match.group(1)}[/]")
-            
+
             # Extract runtime from ps output (format: HH:MM or M:SS in TIME column)
             # ps aux format: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
-            time_match = re.search(r"\s+(\d+:\d+)\s+(?:/opt/conda/bin/)?(?:python\s+)?(?:/opt/conda/bin/)?heretic", proc)
+            time_match = re.search(
+                r"\s+(\d+:\d+)\s+(?:/opt/conda/bin/)?(?:python\s+)?(?:/opt/conda/bin/)?heretic",
+                proc,
+            )
             if time_match:
                 process_table.add_row("Runtime", f"[yellow]{time_match.group(1)}[/]")
-            
+
             # Extract CPU usage
             cpu_match = re.search(r"^\S+\s+\d+\s+([\d.]+)\s+", proc)
             if cpu_match:
@@ -949,7 +1002,10 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
             process_table.add_row("", "[dim]Abliteration complete or not started[/]")
 
         layout["left"].split_column(
-            Layout(Panel(process_table, title="Process", border_style="white"), name="process"),
+            Layout(
+                Panel(process_table, title="Process", border_style="white"),
+                name="process",
+            ),
             Layout(name="models"),
         )
 
@@ -961,7 +1017,9 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
                     models_content += f"[green]✓[/] {m.strip()}\n"
         else:
             models_content = "[dim](No models saved yet)[/]"
-        layout["models"].update(Panel(models_content.strip(), title="Output Models", border_style="white"))
+        layout["models"].update(
+            Panel(models_content.strip(), title="Output Models", border_style="white")
+        )
 
         # GPU panel
         gpu_table = Table(show_header=True, box=None)
@@ -983,7 +1041,13 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
 
                         # Color code utilization
                         util_int = int(util)
-                        util_style = "green" if util_int > 80 else "yellow" if util_int > 30 else "dim"
+                        util_style = (
+                            "green"
+                            if util_int > 80
+                            else "yellow"
+                            if util_int > 30
+                            else "dim"
+                        )
 
                         gpu_table.add_row(
                             f"{i}: {name[:25]}",
@@ -1000,7 +1064,9 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
         # Footer
         footer_text = Text()
         footer_text.append(f"Disk: {disk.strip()}  │  ", style="dim")
-        footer_text.append(f"Refresh: {interval}s  │  Press Ctrl+C to exit", style="dim")
+        footer_text.append(
+            f"Refresh: {interval}s  │  Press Ctrl+C to exit", style="dim"
+        )
         layout["footer"].update(Panel(footer_text, style="dim"))
 
         return Panel(layout, title="[bold]Heretic[/]", border_style="cyan")
@@ -1041,7 +1107,9 @@ def list_models(ctx, instance_id: Optional[str]):
         conn.open()
         console.print(f"\n[bold]Models in {MODELS_DIR}:[/]\n")
 
-        models = run_ssh_command(conn, f"ls -lh {MODELS_DIR}/ 2>/dev/null | grep -v '^total'")
+        models = run_ssh_command(
+            conn, f"ls -lh {MODELS_DIR}/ 2>/dev/null | grep -v '^total'"
+        )
         if models.strip():
             console.print(models)
         else:
@@ -1063,9 +1131,13 @@ def list_models(ctx, instance_id: Optional[str]):
 @cli.command("download")
 @click.argument("model_name", required=False)
 @click.argument("instance_id", required=False)
-@click.option("--local-dir", "-d", default="./models", help="Local directory to save model")
+@click.option(
+    "--local-dir", "-d", default="./models", help="Local directory to save model"
+)
 @click.pass_context
-def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], local_dir: str):
+def download_model(
+    ctx, model_name: Optional[str], instance_id: Optional[str], local_dir: str
+):
     """Download an abliterated model from Vast.ai."""
     config = ctx.obj["config"]
 
@@ -1086,7 +1158,9 @@ def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], l
         # If no model specified, list available and let user choose
         if not model_name:
             console.print("[yellow]Scanning for available models...[/]")
-            models_output = run_ssh_command(conn, f"ls -1 {MODELS_DIR}/ 2>/dev/null | grep -E '.*-heretic$'")
+            models_output = run_ssh_command(
+                conn, f"ls -1 {MODELS_DIR}/ 2>/dev/null | grep -E '.*-heretic$'"
+            )
             models = [m.strip() for m in models_output.strip().split("\n") if m.strip()]
 
             if not models:
@@ -1117,7 +1191,9 @@ def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], l
         console.print(f"Remote: [dim]{remote_path}[/]")
         console.print(f"Local: [dim]{local_path}[/]")
 
-        console.print("\n[yellow]Note: Large models (70B+) can take 30-60+ minutes to download.[/]")
+        console.print(
+            "\n[yellow]Note: Large models (70B+) can take 30-60+ minutes to download.[/]"
+        )
         if not console.input("\nStart download? [y/N]: ").lower().startswith("y"):
             console.print("Cancelled.")
             return
@@ -1132,7 +1208,9 @@ def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], l
             console.print("\n[yellow]Troubleshooting:[/]")
             console.print("  1. Check VAST_API_KEY is set in .env file")
             console.print("  2. Run: heretic-vast list (to verify API works)")
-            console.print("  3. Try PowerShell script: .\\runpod.ps1 vast-download-model")
+            console.print(
+                "  3. Try PowerShell script: .\\runpod.ps1 vast-download-model"
+            )
             return
 
         host, port = ssh_info
@@ -1146,9 +1224,12 @@ def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], l
 
         # Use scp for download with progress
         scp_cmd = [
-            "scp", "-r",
-            "-o", "StrictHostKeyChecking=no",
-            "-P", str(port),
+            "scp",
+            "-r",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-P",
+            str(port),
             f"root@{host}:{remote_path}",
             str(local_path),
         ]
@@ -1159,16 +1240,18 @@ def download_model(ctx, model_name: Optional[str], instance_id: Optional[str], l
         duration_str = time.strftime("%H:%M:%S", time.gmtime(duration))
 
         if result.returncode == 0:
-            console.print(Panel.fit(
-                f"[bold green]Model Downloaded Successfully![/]\n\n"
-                f"Model: [cyan]{model_name}[/]\n"
-                f"Location: [cyan]{local_path}[/]\n"
-                f"Duration: [cyan]{duration_str}[/]\n\n"
-                f"Don't forget to stop the instance:\n"
-                f"  heretic-vast stop",
-                title="Success",
-                border_style="green",
-            ))
+            console.print(
+                Panel.fit(
+                    f"[bold green]Model Downloaded Successfully![/]\n\n"
+                    f"Model: [cyan]{model_name}[/]\n"
+                    f"Location: [cyan]{local_path}[/]\n"
+                    f"Duration: [cyan]{duration_str}[/]\n\n"
+                    f"Don't forget to stop the instance:\n"
+                    f"  heretic-vast stop",
+                    title="Success",
+                    border_style="green",
+                )
+            )
         else:
             console.print(f"[red]Download failed (exit code: {result.returncode})[/]")
 
@@ -1191,14 +1274,18 @@ def stop_instance(ctx, instance_id: Optional[str]):
         instance_id = str(inst["id"])
 
     console.print(f"Stopping instance [cyan]{instance_id}[/]...")
-    code, stdout, stderr = run_vastai_cmd(["stop", "instance", str(instance_id)], config)
+    code, stdout, stderr = run_vastai_cmd(
+        ["stop", "instance", str(instance_id)], config
+    )
 
-    console.print(Panel.fit(
-        f"[bold green]Instance Stopped - Billing Paused[/]\n\n"
-        f"Restart with: heretic-vast start {instance_id}",
-        title="Stopped",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]Instance Stopped - Billing Paused[/]\n\n"
+            f"Restart with: heretic-vast start {instance_id}",
+            title="Stopped",
+            border_style="green",
+        )
+    )
 
 
 @cli.command("start")
@@ -1219,7 +1306,9 @@ def start_instance(ctx, instance_id: Optional[str]):
             return
 
     console.print(f"Starting instance [cyan]{instance_id}[/]...")
-    code, stdout, stderr = run_vastai_cmd(["start", "instance", str(instance_id)], config)
+    code, stdout, stderr = run_vastai_cmd(
+        ["start", "instance", str(instance_id)], config
+    )
     console.print(stdout)
     console.print("\n[green]Instance starting![/]")
     console.print("Wait ~30 seconds, then run: heretic-vast list")
@@ -1232,12 +1321,20 @@ def terminate_instance(ctx, instance_id: str):
     """Permanently destroy a Vast.ai instance."""
     config = ctx.obj["config"]
 
-    if not console.input(f"Are you sure you want to [red]DESTROY[/] instance {instance_id}? [y/N]: ").lower().startswith("y"):
+    if (
+        not console.input(
+            f"Are you sure you want to [red]DESTROY[/] instance {instance_id}? [y/N]: "
+        )
+        .lower()
+        .startswith("y")
+    ):
         console.print("Cancelled.")
         return
 
     console.print(f"Destroying instance [red]{instance_id}[/]...")
-    code, stdout, stderr = run_vastai_cmd(["destroy", "instance", str(instance_id)], config)
+    code, stdout, stderr = run_vastai_cmd(
+        ["destroy", "instance", str(instance_id)], config
+    )
     console.print("[green]Instance destroyed.[/]")
 
 
@@ -1264,7 +1361,10 @@ def connect_ssh(ctx, instance_id: Optional[str]):
     console.print(f"Connecting to [cyan]{host}:{port}[/]...")
 
     # Launch interactive SSH
-    os.execvp("ssh", ["ssh", "-p", str(port), f"root@{host}", "-o", "StrictHostKeyChecking=no"])
+    os.execvp(
+        "ssh",
+        ["ssh", "-p", str(port), f"root@{host}", "-o", "StrictHostKeyChecking=no"],
+    )
 
 
 def main():

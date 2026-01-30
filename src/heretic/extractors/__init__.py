@@ -9,10 +9,10 @@ custom extractors can be created for other behaviors like verbosity, hedging, et
 
 Usage:
     from heretic.extractors import get_extractor, list_extractors
-    
+
     # Get the default refusal extractor
     extractor = get_extractor("refusal")
-    
+
     # List available extractors
     print(list_extractors())
 """
@@ -28,7 +28,7 @@ _EXTRACTORS: dict[str, type[DirectionExtractor]] = {
 
 def register_extractor(name: str, extractor_class: type[DirectionExtractor]) -> None:
     """Register a custom direction extractor.
-    
+
     Args:
         name: Unique name for the extractor (e.g., "verbosity")
         extractor_class: Class that implements DirectionExtractor
@@ -43,21 +43,19 @@ def register_extractor(name: str, extractor_class: type[DirectionExtractor]) -> 
 
 def get_extractor(name: str) -> type[DirectionExtractor]:
     """Get a direction extractor by name.
-    
+
     Args:
         name: Name of the extractor (e.g., "refusal", "verbosity")
-        
+
     Returns:
         The extractor class (not an instance)
-        
+
     Raises:
         KeyError: If extractor name is not registered
     """
     if name not in _EXTRACTORS:
         available = ", ".join(_EXTRACTORS.keys())
-        raise KeyError(
-            f"Unknown extractor: '{name}'. Available: {available}"
-        )
+        raise KeyError(f"Unknown extractor: '{name}'. Available: {available}")
     return _EXTRACTORS[name]
 
 

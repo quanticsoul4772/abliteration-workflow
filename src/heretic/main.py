@@ -199,10 +199,12 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
-    
+
     # Phase 1: Support multi-direction PCA extraction
     if settings.use_pca_extraction and settings.n_refusal_directions > 1:
-        print(f"* Extracting {settings.n_refusal_directions} refusal directions using contrastive PCA...")
+        print(
+            f"* Extracting {settings.n_refusal_directions} refusal directions using contrastive PCA..."
+        )
         refusal_directions_multi = model.get_refusal_directions_pca(
             good_residuals,
             bad_residuals,
@@ -225,7 +227,7 @@ def run():
         )
         refusal_directions_multi = None
         use_multi_direction = False
-    
+
     # Phase 5: Direction orthogonalization
     helpfulness_direction = None
     if settings.orthogonalize_directions:
@@ -235,27 +237,27 @@ def run():
             unhelpful_prompts = load_prompts(settings.unhelpfulness_prompts)
             print(f"  * Loaded {len(helpful_prompts)} helpful prompts")
             print(f"  * Loaded {len(unhelpful_prompts)} unhelpful prompts")
-            
+
             helpful_residuals = model.get_residuals_batched(helpful_prompts)
             unhelpful_residuals = model.get_residuals_batched(unhelpful_prompts)
-            
+
             helpfulness_direction = model.extract_helpfulness_direction(
                 helpful_residuals,
                 unhelpful_residuals,
             )
-            
+
             # Orthogonalize the refusal direction
             print("  * Orthogonalizing refusal direction against helpfulness...")
             refusal_directions = model.orthogonalize_direction(
                 refusal_directions,
                 helpfulness_direction,
             )
-            
+
             del helpful_residuals, unhelpful_residuals
         except Exception as e:
             print(f"[yellow]Warning: Failed to load helpfulness datasets: {e}[/]")
             print("[yellow]Continuing without orthogonalization.[/]")
-    
+
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals
     empty_cache()
@@ -345,10 +347,12 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        
+
         # Phase 4: Support iterative refinement
         if settings.iterative_rounds > 1:
-            print(f"  * Using iterative ablation ({settings.iterative_rounds} rounds)...")
+            print(
+                f"  * Using iterative ablation ({settings.iterative_rounds} rounds)..."
+            )
             rounds_done, kl_values = model.abliterate_iterative(
                 good_prompts,
                 bad_prompts,
@@ -356,8 +360,12 @@ def run():
                 max_rounds=settings.iterative_rounds,
                 min_direction_magnitude=settings.min_direction_magnitude,
                 max_kl_per_round=settings.max_kl_per_round,
-                base_logprobs=evaluator.base_logprobs if settings.kl_divergence_tokens == 1 else None,
-                kl_check_prompts=evaluator.good_prompts if settings.kl_divergence_tokens == 1 else None,
+                base_logprobs=evaluator.base_logprobs
+                if settings.kl_divergence_tokens == 1
+                else None,
+                kl_check_prompts=evaluator.good_prompts
+                if settings.kl_divergence_tokens == 1
+                else None,
             )
             print(f"  * Completed {rounds_done} iteration rounds")
         elif use_multi_direction and refusal_directions_multi is not None:
@@ -371,39 +379,47 @@ def run():
         else:
             # Original single-direction ablation
             model.abliterate(refusal_directions, direction_index, parameters)
-        
+
         print("* Evaluating...")
         try:
             score, kl_divergence, refusals = evaluator.get_score()
         except torch.cuda.OutOfMemoryError as e:
             nonlocal oom_count
             oom_count += 1
-            
+
             # Clear GPU memory
             empty_cache()
-            
+
             mem_info = get_gpu_memory_info()
             print(f"[red]GPU OOM detected (attempt {oom_count}/{MAX_OOM_RETRIES})[/]")
-            print(f"[yellow]GPU Memory: {mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used[/]")
-            
+            print(
+                f"[yellow]GPU Memory: {mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used[/]"
+            )
+
             if oom_count >= MAX_OOM_RETRIES:
-                print(f"[red]Repeated OOM errors ({oom_count}). Progress saved via Optuna storage.[/]")
-                print(f"[yellow]Resume with: heretic {settings.model} --storage {settings.storage}[/]")
+                print(
+                    f"[red]Repeated OOM errors ({oom_count}). Progress saved via Optuna storage.[/]"
+                )
+                print(
+                    f"[yellow]Resume with: heretic {settings.model} --storage {settings.storage}[/]"
+                )
                 raise BatchSizeError(
                     f"Out of GPU memory after {oom_count} attempts. "
                     "Try reducing batch_size or max_batch_size, or use a GPU with more VRAM."
                 ) from e
-            
+
             # Reduce batch size and signal retry
             if settings.batch_size > 1:
                 settings.batch_size = max(1, settings.batch_size // 2)
-                print(f"[yellow]Reducing batch_size to {settings.batch_size} and retrying...[/]")
-            
+                print(
+                    f"[yellow]Reducing batch_size to {settings.batch_size} and retrying...[/]"
+                )
+
             raise  # Re-raise to let Optuna handle the failed trial
 
         # Note: trial.report() and trial.should_prune() are not supported for multi-objective
         # optimization in Optuna. Pruning is disabled for now.
-        # 
+        #
         # Design note: Switching to single-objective optimization with a weighted score
         # would enable pruning (~30% compute savings), but at the cost of losing the
         # Pareto front diversity. The current multi-objective approach is preferred
@@ -452,14 +468,18 @@ def run():
         raise
 
     # Calculate remaining trials if resuming
-    completed_trials = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+    completed_trials = len(
+        [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    )
     remaining_trials = max(0, settings.n_trials - completed_trials)
-    
+
     if completed_trials > 0:
         print()
-        print(f"[cyan]Resuming from trial {completed_trials + 1} ({completed_trials} completed trials found)[/]")
+        print(
+            f"[cyan]Resuming from trial {completed_trials + 1} ({completed_trials} completed trials found)[/]"
+        )
         trial_index = completed_trials
-    
+
     if remaining_trials > 0:
         study.optimize(objective, n_trials=remaining_trials)
     else:
@@ -517,7 +537,7 @@ def run():
             k: AbliterationParameters(**v)
             for k, v in trial.user_attrs["parameters"].items()
         }
-        
+
         # Use same ablation logic as during optimization
         if settings.iterative_rounds > 1:
             model.abliterate_iterative(
@@ -634,7 +654,7 @@ def run():
             k: AbliterationParameters(**v)
             for k, v in trial.user_attrs["parameters"].items()
         }
-        
+
         # Use same ablation logic as during optimization
         if settings.iterative_rounds > 1:
             model.abliterate_iterative(

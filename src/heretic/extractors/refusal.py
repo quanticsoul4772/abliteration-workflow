@@ -13,28 +13,28 @@ if TYPE_CHECKING:
 
 class RefusalDirectionExtractor(DirectionExtractor):
     """Extracts the refusal direction for abliteration.
-    
+
     This is the default extractor that identifies the direction in activation
     space corresponding to refusal behavior. Abliterating this direction
     removes the model's tendency to refuse certain requests.
-    
+
     The direction is computed from:
     - Positive prompts: Harmless requests that don't trigger refusals
     - Negative prompts: Requests that typically trigger refusals
-    
+
     Direction = mean(refused_activations) - mean(accepted_activations)
     """
-    
+
     def get_prompts(self, settings: "Settings") -> tuple[list[str], list[str]]:
         """Load refusal prompt datasets from settings.
-        
+
         Uses the good_prompts and bad_prompts dataset specifications
         from the heretic configuration.
         """
         from heretic.utils import load_prompts
-        
+
         # Load from configured datasets
         positive_prompts = load_prompts(settings.good_prompts)
         negative_prompts = load_prompts(settings.bad_prompts)
-        
+
         return positive_prompts, negative_prompts
