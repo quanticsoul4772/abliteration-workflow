@@ -89,22 +89,22 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed instructions.
 
 ## Features
 
-- **Automatic optimization** - Uses Optuna for multi-objective hyperparameter tuning
-- **Resume support** - Persistent SQLite storage allows resuming interrupted experiments
-- **Pareto-optimal results** - Presents best trade-offs between capability preservation and behavior modification
-- **Multi-GPU support** - Scales across available GPUs with `device_map="auto"`
-- **HuggingFace integration** - Direct upload to your HF account
-- **Fully automated mode** - `--auto-select` + `--hf-upload` for headless operation
-- **Chat interface** - Gradio-based UI for interacting with modified models
-- **Cloud CLI** - `heretic-vast` for Vast.ai GPU management with live dashboard
-- **Experiments framework** - Infrastructure for testing new behavioral directions
+- Automatic optimization using Optuna TPE sampler for multi-objective hyperparameter tuning
+- Resume support via persistent SQLite storage
+- Pareto-optimal trial selection balancing capability preservation and behavior modification
+- Multi-GPU support with automatic or manual device mapping
+- HuggingFace integration for direct model upload
+- Fully automated mode for headless operation
+- Gradio chat interface for testing modified models
+- Cloud CLI for Vast.ai GPU management
+- Experiments framework for testing new behavioral directions
 
 ### Performance Optimizations
 
-- **In-memory weight caching** - Caches original weights for fast reset (~5-10x faster than reloading from disk)
-- **torch.compile() support** - Optional compilation for ~1.5-2x inference speedup (`--compile`)
-- **Early stopping for refusals** - Generates fewer tokens for refusal detection (~40-60% faster evaluation)
-- **Parallel evaluation** - KL divergence and refusal counting run concurrently
+- In-memory weight caching (5-10x faster trial reset vs disk reload)
+- Optional torch.compile() support (1.5-2x inference speedup)
+- Early stopping for refusal detection (40-60% faster evaluation)
+- Parallel KL divergence and refusal counting
 
 ## Requirements
 
@@ -228,15 +228,7 @@ The chat interface includes automatic web search capabilities to augment respons
 
 ### How It Works
 
-The WebSearcher automatically detects when your question needs current information and searches the web:
-
-```
-User: "What's the current price of Bitcoin?"
-🔍 Searching the web...
-🔍 *Found 5 web results*
-
-Based on the search results, Bitcoin is currently trading at...
-```
+The WebSearcher automatically detects when your question needs current information and searches the web. Search results are injected into the conversation context before the model generates its response.
 
 ### Automatic vs Explicit Search
 
@@ -280,7 +272,7 @@ In the chat interface, expand "Advanced Settings" and uncheck "Enable Web Search
 
 ## Chat Interface
 
-Heretic includes a sophisticated chat interface for interacting with your abliterated models.
+Heretic includes a Gradio-based chat interface for testing abliterated models.
 
 ### Quick Start
 
@@ -292,22 +284,15 @@ pip install gradio transformers torch accelerate
 python chat_app.py
 ```
 
-This opens a web UI at `http://localhost:7860` with:
-
-- **Model Selection** - Switch between abliterated models in the `models/` directory
-- **Streaming Responses** - See tokens appear in real-time
-- **GPU Memory Monitoring** - Real-time display of GPU usage (e.g., "GPU: 4.2/8.0 GB (52%)")
-- **Chat History** - Save and load conversations as JSON files
-- **Advanced Settings** - Adjustable temperature and max tokens
-- **Model Validation** - Automatic validation of model files before loading
-- **Clean Minimal UI** - Monochrome theme with responsive design
+Opens web UI at `http://localhost:7860` with model selection, streaming responses, GPU memory monitoring, and chat history persistence.
 
 ### Features
 
-- **Type-safe implementation** with comprehensive type hints
-- **Custom exception handling** for better error messages (CUDA OOM, model validation, etc.)
-- **Structured logging** with configurable log levels
-- **Cross-model compatibility** - Works with Llama, Qwen, and other architectures
+- Type-safe implementation with comprehensive type hints
+- Custom exception handling (CUDA OOM, model validation, tokenization errors)
+- Structured logging with configurable log levels
+- Cross-model compatibility (Llama, Qwen, and other architectures)
+- Model file validation before loading
 
 ### Using Your Models
 
