@@ -73,6 +73,17 @@ markers = [
     "gpu: marks tests requiring GPU",
 ]
 
+[tool.ruff]
+# Exclude external vendored code from linting
+exclude = [
+    "tools/",
+    "experiments/",
+]
+
+[tool.ruff.lint]
+# Enable import sorting
+extend-select = ["I"]
+
 [tool.coverage.run]
 omit = ["tests/*"]
 
