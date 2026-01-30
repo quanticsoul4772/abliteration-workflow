@@ -1,8 +1,76 @@
 # CLAUDE.md
 
-## ⛔ STOP - YOU MUST READ THIS FIRST ⛔
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**BEFORE ANY ACTION, READ: `WORKING_COMMANDS.md`, `knowledge.md` and `WORKFLOW.md`**
+---
+
+## ⛔⛔⛔ CATASTROPHIC FAILURE PREVENTION ⛔⛔⛔
+
+### RULE 1: NEVER RUN DESTRUCTIVE COMMANDS WITHOUT EXPLICIT CONFIRMATION
+**Destructive commands:** `pkill`, `kill`, `rm -rf`, `git reset --hard`, `DROP TABLE`, stopping instances
+
+**BEFORE running ANY destructive command:**
+1. State EXACTLY what the command will do
+2. State that it is IRREVERSIBLE  
+3. Ask "Should I proceed? Type 'yes' to confirm."
+4. WAIT for explicit "yes" - NOT "complete", "finish", "do it"
+
+### RULE 2: AMBIGUOUS REQUESTS → ASK FIRST
+**Dangerous phrases that need clarification:**
+- "Complete the training" → Does this mean STOP or LET IT FINISH?
+- "Finish the job" → Does this mean TERMINATE or WAIT FOR COMPLETION?
+- "End the process" → Does this mean KILL or WAIT UNTIL DONE?
+
+**ALWAYS ASK:** "Do you mean (A) let it continue to completion, or (B) stop it now?"
+
+### RULE 3: TRUST USER OBSERVATIONS OVER SYSTEM DATA
+**When user says "I see X" and your data says "Y":**
+- NEVER say "it's fine" or "everything is working"
+- IMMEDIATELY investigate the discrepancy
+- Say: "There's a discrepancy. Let me investigate what you're seeing."
+
+### RULE 4: REPEATED USER CONCERNS = STOP AND INVESTIGATE  
+**If the user raises the same concern more than once:**
+- STOP whatever you're doing
+- Do NOT repeat "it's fine"
+- Deeply investigate from THEIR perspective
+- The user is probably RIGHT
+
+### RULE 5: ALWAYS CHECK DISK SPACE BEFORE CREATING CLOUD INSTANCES
+**BEFORE creating ANY Vast.ai instance:**
+1. Calculate required storage: `(model_size × 2) + 20GB`
+2. For 32B models: **MINIMUM 200GB disk**
+3. For 70B models: **MINIMUM 400GB disk**
+4. **DEFAULT 100GB IS NOT ENOUGH FOR 32B MODELS**
+
+---
+
+## ⚠️ MANDATORY PRE-ACTION CHECKLIST
+
+**STOP. Before taking ANY action, complete this checklist:**
+
+```
+□ 1. Have I read CLAUDE.md COMPLETELY? (Not skimmed - READ)
+□ 2. Have I read WORKFLOW.md? (Contains heretic-vast commands)
+□ 3. What does the user ACTUALLY want? (Write it down)
+□ 4. What do I ALREADY have? (Check conversation, local files, downloaded models)
+□ 5. Do existing tools handle this? (heretic-vast CLI, runpod.ps1 script)
+□ 6. Can local hardware do this? (RTX 4070, 8GB VRAM - use 4-bit quantization)
+□ 7. Is cloud NECESSARY? (Default answer: NO)
+□ 8. What's the SIMPLEST approach?
+```
+
+### Anti-Patterns to Avoid
+
+| Trigger | WRONG Response | RIGHT Response |
+|---------|----------------|----------------|
+| "Test model" | Start Vast.ai | Check if results exist locally |
+| "Need GPU" | Rent cloud GPU | Check local 4070 first |
+| "Error occurred" | Try workaround | Fix the actual error |
+| "Compare models" | Load both at once | Sequential with memory clearing |
+| User instruction | Treat as suggestion | Treat as **HARD CONSTRAINT** |
+
+---
 
 ## ⚠️ WORKING COMMANDS - USE THESE ⚠️
 
@@ -22,57 +90,11 @@ uv run heretic-vast stop              # Stop instance
 uv run heretic-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/heretic_study.db --study-name qwen32b-abliteration > /workspace/heretic.log 2>&1 &"
 ```
 
-See `WORKING_COMMANDS.md` for full documentation.
-
-**YOU HAVE REPEATEDLY FAILED BY:**
-- Using manual SSH commands instead of `heretic-vast` CLI
-- Destroying running cloud instances without permission
-- Starting experiments without checking if one is already running
-- Pattern-matching "cloud task" → "SSH commands" instead of using tools
-
-**THE TOOLS EXIST. USE THEM:**
+### Git: ALWAYS push to `fork` (abliteration-workflow)
 ```bash
-uv run heretic-vast list        # Check instances
-uv run heretic-vast progress ID # Check experiment progress  
-uv run heretic-vast status ID   # Check GPU/process status
+git push fork master   # ✅ CORRECT
+git push heretic-fork  # ❌ WRONG - causes split repos
 ```
-
-**NEVER use raw SSH when heretic-vast exists. NEVER.**
-
----
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## ⚠️ MANDATORY PRE-ACTION CHECKLIST
-
-**STOP. Before taking ANY action, complete this checklist:**
-
-```
-□ 1. Have I read knowledge.md?
-□ 2. What does the user ACTUALLY want? (Write it down)
-□ 3. What do I ALREADY have? (Check conversation, local files, downloaded models)
-□ 4. Do existing tools handle this? (runpod.ps1, heretic-vast, existing scripts)
-□ 5. Can local hardware do this? (RTX 4070, 8GB VRAM - use 4-bit quantization)
-□ 6. Is cloud NECESSARY? (Default answer: NO)
-□ 7. What's the SIMPLEST approach?
-```
-
-### Anti-Patterns to Avoid
-
-| Trigger | WRONG Response | RIGHT Response |
-|---------|----------------|----------------|
-| "Test model" | Start Vast.ai | Check if results exist locally |
-| "Need GPU" | Rent cloud GPU | Check local 4070 first |
-| "Error occurred" | Try workaround | Fix the actual error |
-| "Compare models" | Load both at once | Sequential with memory clearing |
-| User instruction | Treat as suggestion | Treat as HARD CONSTRAINT |
-
-### Root Causes of Past Failures
-
-1. **Pattern matching instead of thinking** - "test model" → "start Vast.ai" without checking
-2. **Not reading documentation** - Created docs then ignored them
-3. **Prioritizing action over understanding** - Looking productive vs being effective
-4. **Treating user instructions as suggestions** - They are constraints, not options
 
 ---
 
@@ -80,7 +102,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Heretic is a tool for **neural behavior modification** in language models using activation direction analysis and Optuna-based optimization. While best known for abliteration (refusal removal), the technique is general and can extract/modify any behavioral direction encoded in model weights.
 
-**Vision:** A personal neural engineering workbench for understanding and reshaping LLM behavior at the weight level. See [ROADMAP.md](ROADMAP.md) for full vision and research directions.
+**Vision:** A personal neural engineering workbench for understanding and reshaping LLM behavior at the weight level. See [ROADMAP.md](ROADMAP.md) for full vision.
 
 ## Build and Development Commands
 
@@ -138,11 +160,12 @@ uv build
 - Pydantic-based configuration with layered sources: CLI args > env vars > config.toml
 - Key settings: `n_trials`, `batch_size`, `dtypes`, `refusal_markers`
 
-### Optimization Strategy
-- Multivariate TPE sampler with `n_startup_trials` random exploration
-- Parameters per component: `max_weight`, `max_weight_position`, `min_weight`, `min_weight_distance`
-- Direction scope: global (single layer index) or per-layer
-- Dual objective: minimize both KL divergence and refusal count
+### Key Directories
+- `src/heretic/` - Core abliteration logic
+- `src/heretic/vast.py` - Vast.ai cloud CLI
+- `experiments/` - Behavioral direction experiments
+- `models/` - Local modified models (gitignored)
+- `chat_history/` - Saved chat sessions (gitignored)
 
 ## Configuration
 
@@ -159,39 +182,94 @@ Key parameters in `config.toml`:
 - `storage`: Optuna SQLite storage URL for resume support (default: sqlite:///heretic_study.db)
 - `study_name`: Optuna study name for resuming experiments
 
-## Chat Interface
+## Performance Optimizations
 
-**`chat_app.py`** - Gradio-based chat UI for abliterated models
+| Optimization | Speedup | Flag/Config |
+|--------------|---------|-------------|
+| In-memory weight caching | ~5-10x faster model reset | Automatic |
+| torch.compile() | ~1.5-2x inference speedup | `--compile` |
+| Early stopping for refusals | ~40-60% faster evaluation | `--refusal-check-tokens 30` |
+| Parallel evaluation | ~20-30% faster per trial | Automatic |
+| Resume support | Can resume interrupted runs | `--storage sqlite:///study.db` |
 
-### Architecture
+**Example with all optimizations:**
+```bash
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+  --compile \
+  --storage sqlite:///heretic_study.db \
+  --study-name qwen32b \
+  --auto-select true
+```
+
+## Heretic CLI Flags Reference
+
+| Flag | Notes |
+|------|-------|
+| `--auto-select` | **REQUIRES a boolean value**: Use `--auto-select true`, NOT `--auto-select` |
+| `--compile` | Enable torch.compile() for ~1.5-2x inference speedup |
+| `--storage` | Optuna storage URL for resume support (e.g., `sqlite:///study.db`) |
+| `--study-name` | Name for the Optuna study (default: `heretic_study`) |
+| `--refusal-check-tokens` | Tokens for refusal detection (default: 30, lower = faster) |
+| `--cache-weights` | Enable/disable in-memory weight caching (default: true). **SET TO FALSE FOR 32B+ MODELS** |
+
+**Examples:**
+```bash
+# 7B model
+heretic --model Qwen/Qwen2.5-7B-Instruct --auto-select true --n-trials 20 --compile
+
+# 32B model (must disable weight caching)
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --cache-weights false --storage sqlite:///study.db
+```
+
+---
+
+## Conventions
+
+- **Formatting/linting:** `ruff format .` and `ruff check --extend-select I .`
+- **Type hints:** Use comprehensive type hints for all functions/methods
+- **Error handling:** Use custom exception classes with descriptive messages
+- **CSS:** Use Gradio CSS variables (e.g., `--body-text-color`) for theme compatibility
+
+**Things to avoid:**
+- No emojis or unicode symbols in output
+- No `torch_dtype` (use `dtype`)
+- No type casting to `any` - keep proper types
+- No print statements - use `logging` module instead
+
+---
+
+## Chat Interface (`chat_app.py`)
+
+**Architecture:**
 - `ModelManager` class: Handles model loading, caching, and streaming text generation
 - Custom exception hierarchy: `HereticError` base class with specific exceptions:
   - `ModelNotFoundError`, `ModelValidationError`, `ModelLoadError`
   - `CUDAOutOfMemoryError`, `TokenizationError`, `GenerationError`
 - Structured logging via Python's `logging` module (logger: `heretic_chat`)
 
-### Key Features
+**Key Features:**
 - Auto-discovers models in `models/` directory with validation
 - Validates model files before loading (config.json, weights, tokenizer)
 - Streaming token generation via `TextIteratorStreamer`
 - Real-time GPU memory monitoring display
 - Chat history persistence to `chat_history/` as JSON
-- Model caching to avoid reloading between messages
-- Cross-model tokenization compatibility (handles Llama, Qwen, etc.)
-- Clean monochrome theme using Gradio CSS variables
 
-### Configuration
-- `MODELS_DIR`: Path to models directory (default: `./models`)
-- `CHAT_HISTORY_DIR`: Path to chat history (default: `./chat_history`)
-- Server runs on `0.0.0.0:7860` by default
+**Patterns:**
+- Model validation: Check for config.json, model weights, and tokenizer files
+- GPU monitoring: Use `torch.cuda.memory_reserved()` for accurate usage
+- Tokenization: Use `apply_chat_template(tokenize=True, return_tensors="pt")` for cross-model compatibility
+- Message validation: Ensure all message content is string (not None) for Qwen compatibility
 
-Run with: `python chat_app.py`
+---
 
 ## Vast.ai CLI (`src/heretic/vast.py`)
 
 Dedicated CLI for Vast.ai GPU cloud management:
 
 ```bash
+# ⛔ CRITICAL: Check disk requirements first!
+# 32B model needs 200GB disk, 70B needs 400GB
+# Default 100GB is NOT enough for 32B models!
 heretic-vast create A100_80GB 2   # Create 2x A100 instance
 heretic-vast setup                 # Install heretic
 heretic-vast run MODEL             # Run abliteration
@@ -199,28 +277,15 @@ heretic-vast watch                 # Live dashboard
 heretic-vast stop                  # Stop billing
 ```
 
-### Key Components
+**Key Components:**
 - `VastConfig`: Configuration from env vars / .env file
 - `GPU_TIERS`: Preset configurations for different GPU types
 - `get_connection()`: Fabric SSH connection management
 - `watch_dashboard()`: Rich live terminal dashboard
 
-### Dependencies
-- `fabric`: SSH connections
-- `rich`: Terminal UI (tables, panels, live display)
-- `click`: CLI framework
+**Dependencies:** `fabric`, `rich`, `click`
 
-### SSH Troubleshooting
-
-If `heretic-vast` commands fail with SSH authentication errors:
-
-1. **Check SSH agent is running**: `ssh-add -l` (if empty, run `eval $(ssh-agent -s) && ssh-add ~/.ssh/id_ed25519`)
-2. **Verify key on Vast.ai**: `vastai show ssh-keys`
-3. **Attach key to instance**: `vastai attach ssh INSTANCE_ID "$(cat ~/.ssh/id_ed25519.pub)"`
-4. **Reboot instance**: `vastai reboot instance INSTANCE_ID` (wait 45s, then `heretic-vast list` for new port)
-5. **Fallback to direct SSH**: `ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -p PORT root@ssh1.vast.ai "command"`
-
-See `knowledge.md` for full SSH recovery workflow.
+---
 
 ## Experiments Framework
 
@@ -228,14 +293,9 @@ Experiments for testing new behavioral directions live in `experiments/`:
 
 ```
 experiments/
-└── verbosity/              # Verbosity direction spike
-    ├── README.md           # Experiment documentation
-    ├── concise_prompts.json    # Factual/closed questions (200)
-    ├── verbose_prompts.json    # Open-ended questions (200)
-    ├── config.verbosity.toml   # Heretic config for experiment
-    ├── load_local_dataset.py   # Convert JSON to HF Dataset
-    ├── eval_verbosity.py       # Measure response length changes
-    └── run_spike.ps1           # Windows automation script
+├── verbosity/          # Completed: padding direction extraction
+├── verbosity_v2/       # Completed: isolated padding vs complexity
+└── hedging/            # Ready: hedging marker extraction
 ```
 
 ### Running Experiments
@@ -254,6 +314,96 @@ heretic --model meta-llama/Llama-3.1-8B-Instruct
 python experiments/verbosity/eval_verbosity.py --original MODEL --modified OUTPUT
 ```
 
-## Testing
+### Verbosity Spike Results (Qwen 7B)
 
-No test suite currently exists. CI runs formatting, linting, and build verification only.
+| Metric | Value |
+|--------|-------|
+| Model | Qwen/Qwen2.5-7B-Instruct |
+| Trials | 50 Optuna optimization trials |
+| Model Saved | `./models/Qwen2.5-7B-Instruct-heretic` (15.2 GB) |
+
+**Test Results (RTX 4070, 4-bit quantization):**
+- ✅ **Factual questions**: Concise responses (6-30 words)
+- ⚠️ **Open-ended questions**: Still verbose (195-203 words)
+
+**Conclusion:** The ablation removes padding on simple questions but preserves appropriate depth on complex questions.
+
+---
+
+## Critical Gotchas (Lessons Learned)
+
+### Local Hardware
+- **User has RTX 4070 with 8GB VRAM** - Use this for testing when possible
+- **7B models need 4-bit quantization** to fit in 8GB (use BitsAndBytesConfig)
+- **Cannot load two 7B models simultaneously** - Run comparisons sequentially with memory clearing
+
+### PyTorch CUDA Issue with uv
+`uv run` uses lockfile which may revert to CPU-only torch.
+- Solution 1: Use system Python directly: `python script.py`
+- Solution 2: Force reinstall: `uv pip install --reinstall torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121`
+
+### Tokenizer Issues
+**Heretic saves tokenizer_config.json with `extra_special_tokens` as a list** instead of dict, causing transformers to fail.
+
+**Fix:**
+```python
+import json; p='models/MODEL/tokenizer_config.json'; c=json.load(open(p,encoding='utf-8')); c['extra_special_tokens']={}; json.dump(c,open(p,'w',encoding='utf-8'),indent=2)
+```
+
+### Dataset Loading
+- **heretic uses `load_dataset()` from HuggingFace**, NOT `load_from_disk()`
+- `DatasetSpecification` only supports: `dataset`, `split`, `column` - NO `data_files` field
+
+### Gated Models
+- **Llama models are gated** - require HuggingFace authentication
+- Use `huggingface-cli login` or set `HF_TOKEN` environment variable
+- **Qwen models are NOT gated** - use these for quick testing
+
+### GPU Out of Memory (OOM) on 32B+ Models
+**Problem:** The 32B model causes OOM when heretic tries to cache weights in memory.
+
+**Solution:** Use `--cache-weights false` flag:
+```bash
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --cache-weights false
+```
+
+### pip install --force-reinstall Breaks Environment
+**Problem:** After running `pip install --force-reinstall`, heretic fails with "Could not import module 'Qwen2ForCausalLM'".
+
+**Solution:** `pip install transformers>=4.55.2`
+
+**Prevention:** Never use `--force-reinstall`. Use `--upgrade` instead.
+
+### PowerShell Scripts Fail from Bash/Codebuff
+**Problem:** Running `.ps1` scripts from bash often fails.
+
+**Solution:** Use direct SSH commands or `heretic-vast` CLI instead.
+
+### Instance Stop vs Process Kill
+- **Stopping a Vast.ai instance KILLS running processes** - no graceful save
+- Check `heretic-vast progress` for "Models Saved" before stopping
+
+---
+
+## ⛔ DO NOT DO THESE THINGS ⛔
+
+### NEVER judge instance status by uptime
+- Vast.ai shared GPUs show ACCUMULATED uptime from all users
+- **ONLY check if heretic process is running, NOT the uptime**
+
+### NEVER create a new instance without explicit permission
+- If user says "wait" - WAIT
+- If instance is "loading" - WAIT
+- If you're not sure - ASK
+
+### NEVER take destructive actions without asking
+- Don't stop instances
+- Don't terminate instances  
+- Don't create new instances
+- **ALWAYS ASK FIRST**
+
+### When user says STOP - STOP IMMEDIATELY
+- Don't spawn more agents
+- Don't make more tool calls
+- Don't try to "fix" anything
+- Just STOP and LISTEN
