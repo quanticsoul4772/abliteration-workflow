@@ -358,11 +358,25 @@ class Settings(BaseSettings):
 
     mmlu_categories: list[str] = Field(
         default=[
+            # STEM - Mathematical & Logical Reasoning
             "abstract_algebra",
+            "formal_logic",
+            # STEM - Scientific Reasoning
             "high_school_physics",
+            "high_school_chemistry",
+            "college_biology",
+            # STEM - Computer Science
+            "computer_security",
+            # Professional Knowledge
             "professional_law",
+            "clinical_knowledge",
+            "professional_accounting",
+            # Humanities & Social Sciences
+            "philosophy",
+            "econometrics",
+            "world_history",
         ],
-        description="MMLU categories to evaluate. Covers mathematical, scientific, and legal reasoning.",
+        description="MMLU categories to evaluate. Covers mathematical, logical, scientific, professional, and humanities reasoning for comprehensive capability testing.",
     )
 
     mmlu_samples_per_category: int = Field(
