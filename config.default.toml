@@ -227,6 +227,40 @@ split = "test[:100]"
 column = "text"
 
 # =============================================================================
+# VALIDATION FRAMEWORK
+# =============================================================================
+
+# Enable validation framework to measure abliteration effectiveness.
+# When enabled, establishes baseline metrics before abliteration and measures
+# improvement after optimization completes.
+enable_validation = false
+
+# Run MMLU capability evaluation during validation.
+# Only active when enable_validation = true.
+run_mmlu_validation = true
+
+# MMLU categories to evaluate (covers mathematical, scientific, and legal reasoning).
+# Add more categories for more comprehensive testing at the cost of speed.
+mmlu_categories = [
+    "abstract_algebra",
+    "high_school_physics",
+    "professional_law",
+]
+
+# Number of samples to evaluate per MMLU category.
+# Lower values are faster but less accurate.
+mmlu_samples_per_category = 20
+
+# Number of few-shot examples to include in MMLU prompts.
+mmlu_few_shot = 3
+
+# Save validation report to JSON file after abliteration.
+save_validation_report = true
+
+# Path for validation report (leave empty for auto-generated path).
+# validation_report_path = "./validation_report.json"
+
+# =============================================================================
 # PHASE 5: HELPFULNESS DIRECTION DATASETS
 # =============================================================================
 

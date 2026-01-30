@@ -8,7 +8,6 @@ import time
 import warnings
 from dataclasses import asdict
 from importlib.metadata import version
-from pathlib import Path
 
 import huggingface_hub
 import optuna
@@ -45,6 +44,7 @@ from .utils import (
     load_prompts,
     print,
 )
+from .validation import AbliterationValidator
 
 
 def run():
@@ -183,6 +183,12 @@ def run():
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
     evaluator = Evaluator(settings, model)
+
+    # Initialize validation framework if enabled
+    validator = None
+    if settings.enable_validation:
+        validator = AbliterationValidator(settings, model, evaluator)
+        validator.establish_baseline()
 
     if settings.evaluate_model is not None:
         print()
@@ -508,6 +514,55 @@ def run():
             value="",
         )
     )
+
+    # Run post-abliteration validation if enabled
+    if validator is not None:
+        # We need to restore the best trial for validation
+        if best_trials:
+            best_trial = best_trials[0]
+            model.reload_model()
+            parameters = {
+                k: AbliterationParameters(**v)
+                for k, v in best_trial.user_attrs["parameters"].items()
+            }
+            if settings.iterative_rounds > 1:
+                model.abliterate_iterative(
+                    good_prompts,
+                    bad_prompts,
+                    parameters,
+                    max_rounds=settings.iterative_rounds,
+                    min_direction_magnitude=settings.min_direction_magnitude,
+                    max_kl_per_round=settings.max_kl_per_round,
+                )
+            elif use_multi_direction and refusal_directions_multi is not None:
+                model.abliterate_multi_direction(
+                    refusal_directions_multi,
+                    settings.direction_weights,
+                    parameters,
+                )
+            else:
+                model.abliterate(
+                    refusal_directions,
+                    best_trial.user_attrs["direction_index"],
+                    parameters,
+                )
+            validator.measure_post_abliteration()
+            validator.print_summary()
+
+            # Save validation report if enabled
+            if settings.save_validation_report:
+                report = validator.get_report()
+                if settings.validation_report_path:
+                    report_path = settings.validation_report_path
+                else:
+                    import time as time_module
+                    from pathlib import Path
+
+                    model_name = Path(settings.model).name.replace("/", "_")
+                    timestamp = int(time_module.time())
+                    report_path = f"./validation_report_{model_name}_{timestamp}.json"
+                report.save(report_path)
+                print(f"Validation report saved to [bold]{report_path}[/]")
 
     print()
     print("[bold green]Optimization finished![/]")

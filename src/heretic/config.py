@@ -328,6 +328,46 @@ class Settings(BaseSettings):
     # For better generalization, consider using a different dataset like:
     # dataset = "LibrAI/do-not-answer", split = "train[:100]", column = "question"
 
+    # Validation Framework Settings
+    enable_validation: bool = Field(
+        default=False,
+        description="Enable validation framework to measure abliteration effectiveness. Establishes baseline metrics and measures improvement.",
+    )
+
+    run_mmlu_validation: bool = Field(
+        default=True,
+        description="Run MMLU capability evaluation during validation. Only active when enable_validation=True.",
+    )
+
+    mmlu_categories: list[str] = Field(
+        default=[
+            "abstract_algebra",
+            "high_school_physics",
+            "professional_law",
+        ],
+        description="MMLU categories to evaluate. Covers mathematical, scientific, and legal reasoning.",
+    )
+
+    mmlu_samples_per_category: int = Field(
+        default=20,
+        description="Number of samples to evaluate per MMLU category. Lower values are faster.",
+    )
+
+    mmlu_few_shot: int = Field(
+        default=3,
+        description="Number of few-shot examples to include in MMLU prompts.",
+    )
+
+    save_validation_report: bool = Field(
+        default=True,
+        description="Save validation report to JSON file after abliteration.",
+    )
+
+    validation_report_path: str | None = Field(
+        default=None,
+        description="Path for validation report. Defaults to './validation_report_{model_name}_{timestamp}.json'.",
+    )
+
     # "Model" refers to the Pydantic model of the settings class here,
     # not to the language model. The field must have this exact name.
     model_config = SettingsConfigDict(
