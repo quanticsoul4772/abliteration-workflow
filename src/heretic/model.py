@@ -1037,15 +1037,15 @@ class Model:
         all_eigenvalues = []
 
         for layer_idx in range(n_layers):
-            good_layer = good_residuals[:, layer_idx, :].cpu().numpy()
-            bad_layer = bad_residuals[:, layer_idx, :].cpu().numpy()
+            # Keep tensors on GPU, upcast to float32 for numerical stability
+            good_layer = good_residuals[:, layer_idx, :].float()
+            bad_layer = bad_residuals[:, layer_idx, :].float()
 
-            # Center the data
-            good_centered = good_layer - good_layer.mean(axis=0)
-            bad_centered = bad_layer - bad_layer.mean(axis=0)
+            # Center the data (torch operations on GPU)
+            good_centered = good_layer - good_layer.mean(dim=0)
+            bad_centered = bad_layer - bad_layer.mean(dim=0)
 
             # Compute covariance matrices
-            # Add small regularization for numerical stability
             n_good = good_centered.shape[0]
             n_bad = bad_centered.shape[0]
 
@@ -1055,34 +1055,30 @@ class Model:
             # Contrastive covariance: directions high-variance in bad, low-variance in good
             cov_contrastive = cov_bad - alpha * cov_good
 
-            # Eigendecomposition (eigenvectors with largest eigenvalues)
+            # GPU eigendecomposition (eigenvectors with largest eigenvalues)
             try:
-                eigenvalues, eigenvectors = np.linalg.eigh(cov_contrastive)
-            except np.linalg.LinAlgError:
+                eigenvalues, eigenvectors = torch.linalg.eigh(cov_contrastive)
+            except (RuntimeError, torch.linalg.LinAlgError):
                 # Fallback to mean difference if eigendecomposition fails
-                diff = bad_layer.mean(axis=0) - good_layer.mean(axis=0)
-                diff = diff / (np.linalg.norm(diff) + 1e-8)
-                layer_directions = torch.from_numpy(
-                    np.tile(diff, (n_components, 1))
-                ).float()
+                diff = bad_layer.mean(dim=0) - good_layer.mean(dim=0)
+                diff = diff / (torch.linalg.norm(diff) + 1e-8)
+                layer_directions = diff.unsqueeze(0).repeat(n_components, 1)
                 directions.append(layer_directions)
                 # Use uniform eigenvalues as fallback
-                all_eigenvalues.append(torch.ones(n_components))
+                all_eigenvalues.append(torch.ones(n_components, device=diff.device))
                 continue
 
             # Sort by eigenvalue descending, take top n_components
-            idx = np.argsort(eigenvalues)[::-1][:n_components]
+            idx = torch.argsort(eigenvalues, descending=True)[:n_components]
             top_eigenvalues = eigenvalues[idx]  # Shape: (n_components,)
             top_directions = eigenvectors[:, idx].T  # Shape: (n_components, hidden_dim)
 
             # Normalize each direction
-            layer_directions = torch.from_numpy(top_directions).float()
-            layer_directions = F.normalize(layer_directions, p=2, dim=1)
+            layer_directions = F.normalize(top_directions, p=2, dim=1)
             directions.append(layer_directions)
 
             # Store eigenvalues for this layer
-            layer_eigenvalues = torch.from_numpy(top_eigenvalues.copy()).float()
-            all_eigenvalues.append(layer_eigenvalues)
+            all_eigenvalues.append(top_eigenvalues)
 
         return PCAExtractionResult(
             directions=torch.stack(directions),
