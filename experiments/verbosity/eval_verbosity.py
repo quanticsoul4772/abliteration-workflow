@@ -40,19 +40,19 @@ def get_response(model, tokenizer, prompt: str, max_tokens: int = 200) -> str:
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt},
     ]
-    
+
     chat_prompt = tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
         tokenize=False,
     )
-    
+
     inputs = tokenizer(
         chat_prompt,
         return_tensors="pt",
         return_token_type_ids=False,
     ).to(model.device)
-    
+
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
@@ -60,37 +60,39 @@ def get_response(model, tokenizer, prompt: str, max_tokens: int = 200) -> str:
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
-    
+
     response = tokenizer.decode(
-        outputs[0, inputs["input_ids"].shape[1]:],
+        outputs[0, inputs["input_ids"].shape[1] :],
         skip_special_tokens=True,
     )
-    
+
     return response
 
 
-def measure_verbosity(model, tokenizer, prompts: list[str], desc: str = "Measuring") -> dict:
+def measure_verbosity(
+    model, tokenizer, prompts: list[str], desc: str = "Measuring"
+) -> dict:
     """Measure verbosity metrics for a set of prompts."""
     token_counts = []
     word_counts = []
     char_counts = []
     responses = []
-    
+
     for prompt in track(prompts, description=desc):
         response = get_response(model, tokenizer, prompt)
         responses.append(response)
-        
+
         # Token count
         tokens = tokenizer.encode(response)
         token_counts.append(len(tokens))
-        
+
         # Word count
         words = response.split()
         word_counts.append(len(words))
-        
+
         # Character count
         char_counts.append(len(response))
-    
+
     return {
         "token_counts": token_counts,
         "word_counts": word_counts,
@@ -108,18 +110,18 @@ def measure_verbosity(model, tokenizer, prompts: list[str], desc: str = "Measuri
 def load_model(model_path: str):
     """Load a model and tokenizer."""
     console.print(f"Loading model: [bold]{model_path}[/]")
-    
+
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "left"
-    
+
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype="auto",
         device_map="auto",
     )
-    
+
     return model, tokenizer
 
 
@@ -130,25 +132,31 @@ def print_comparison(original_metrics: dict, modified_metrics: dict):
     table.add_column("Original", justify="right")
     table.add_column("Modified", justify="right")
     table.add_column("Change", justify="right")
-    
-    for metric in ["avg_tokens", "avg_words", "avg_chars", "median_tokens", "median_words"]:
+
+    for metric in [
+        "avg_tokens",
+        "avg_words",
+        "avg_chars",
+        "median_tokens",
+        "median_words",
+    ]:
         orig = original_metrics[metric]
         mod = modified_metrics[metric]
         change = ((mod - orig) / orig) * 100 if orig > 0 else 0
-        
+
         change_str = f"{change:+.1f}%"
         if change < 0:
             change_str = f"[green]{change_str}[/]"
         elif change > 0:
             change_str = f"[red]{change_str}[/]"
-        
+
         table.add_row(
             metric.replace("_", " ").title(),
             f"{orig:.1f}",
             f"{mod:.1f}",
             change_str,
         )
-    
+
     console.print(table)
 
 
@@ -157,14 +165,14 @@ def print_metrics(metrics: dict, name: str):
     table = Table(title=f"Verbosity Metrics: {name}")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right")
-    
+
     table.add_row("Avg Tokens", f"{metrics['avg_tokens']:.1f}")
     table.add_row("Avg Words", f"{metrics['avg_words']:.1f}")
     table.add_row("Avg Chars", f"{metrics['avg_chars']:.1f}")
     table.add_row("Median Tokens", f"{metrics['median_tokens']:.1f}")
     table.add_row("Median Words", f"{metrics['median_words']:.1f}")
     table.add_row("Std Tokens", f"{metrics['std_tokens']:.1f}")
-    
+
     console.print(table)
 
 
@@ -188,65 +196,83 @@ def main():
         "--output",
         help="Save detailed results to JSON file",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Load prompts
-    prompts = load_prompts(args.prompts)[:args.num_prompts]
+    prompts = load_prompts(args.prompts)[: args.num_prompts]
     console.print(f"Loaded [bold]{len(prompts)}[/] prompts")
-    
+
     if args.model:
         # Single model evaluation
         model, tokenizer = load_model(args.model)
         metrics = measure_verbosity(model, tokenizer, prompts, "Measuring verbosity")
         print_metrics(metrics, args.model)
-        
+
         if args.output:
             with open(args.output, "w") as f:
-                json.dump({
-                    "model": args.model,
-                    "metrics": {k: v for k, v in metrics.items() if k != "responses"},
-                    "responses": metrics["responses"],
-                }, f, indent=2)
+                json.dump(
+                    {
+                        "model": args.model,
+                        "metrics": {
+                            k: v for k, v in metrics.items() if k != "responses"
+                        },
+                        "responses": metrics["responses"],
+                    },
+                    f,
+                    indent=2,
+                )
             console.print(f"Results saved to [bold]{args.output}[/]")
-    
+
     elif args.original and args.modified:
         # Comparison mode
         orig_model, orig_tokenizer = load_model(args.original)
         orig_metrics = measure_verbosity(
             orig_model, orig_tokenizer, prompts, "Measuring original"
         )
-        
+
         # Free memory
         del orig_model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         mod_model, mod_tokenizer = load_model(args.modified)
         mod_metrics = measure_verbosity(
             mod_model, mod_tokenizer, prompts, "Measuring modified"
         )
-        
+
         print_comparison(orig_metrics, mod_metrics)
-        
+
         if args.output:
             with open(args.output, "w") as f:
-                json.dump({
-                    "original": {
-                        "model": args.original,
-                        "metrics": {k: v for k, v in orig_metrics.items() if k != "responses"},
-                        "responses": orig_metrics["responses"],
+                json.dump(
+                    {
+                        "original": {
+                            "model": args.original,
+                            "metrics": {
+                                k: v
+                                for k, v in orig_metrics.items()
+                                if k != "responses"
+                            },
+                            "responses": orig_metrics["responses"],
+                        },
+                        "modified": {
+                            "model": args.modified,
+                            "metrics": {
+                                k: v for k, v in mod_metrics.items() if k != "responses"
+                            },
+                            "responses": mod_metrics["responses"],
+                        },
                     },
-                    "modified": {
-                        "model": args.modified,
-                        "metrics": {k: v for k, v in mod_metrics.items() if k != "responses"},
-                        "responses": mod_metrics["responses"],
-                    },
-                }, f, indent=2)
+                    f,
+                    indent=2,
+                )
             console.print(f"Results saved to [bold]{args.output}[/]")
-    
+
     else:
-        console.print("[red]Error: Specify either --model or both --original and --modified[/]")
+        console.print(
+            "[red]Error: Specify either --model or both --original and --modified[/]"
+        )
         sys.exit(1)
 
 

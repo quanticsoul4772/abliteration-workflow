@@ -6,6 +6,7 @@
 These tests mock external dependencies (subprocess, fabric, file system)
 to avoid making real API calls or requiring the vastai CLI.
 """
+
 import json
 import pytest
 from pathlib import Path
@@ -136,10 +137,14 @@ class TestVastConfig:
         """Test VastConfig.from_env loads from environment variables."""
         from heretic.vast import VastConfig
 
-        with patch.dict("os.environ", {
-            "VAST_API_KEY": "env-api-key",
-            "LOCAL_MODELS_DIR": "/env/models",
-        }, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "VAST_API_KEY": "env-api-key",
+                "LOCAL_MODELS_DIR": "/env/models",
+            },
+            clear=False,
+        ):
             with patch("pathlib.Path.exists", return_value=False):
                 config = VastConfig.from_env()
 
@@ -150,13 +155,13 @@ class TestVastConfig:
         """Test VastConfig.from_env reads .env file."""
         from heretic.vast import VastConfig
 
-        env_content = '''
+        env_content = """
 # Comment line
 VAST_API_KEY=dotenv-api-key
 LOCAL_MODELS_DIR=/dotenv/models
 EMPTY_VAR=
 PLACEHOLDER_VAR=your_api_key_here
-'''
+"""
 
         with patch.dict("os.environ", {}, clear=True):
             with patch("pathlib.Path.exists", return_value=True):
@@ -201,7 +206,14 @@ class TestGPUTiers:
         """Test GPU_TIERS has all expected tier configurations."""
         from heretic.vast import GPU_TIERS
 
-        expected_tiers = ["RTX_4090", "A6000", "A100_40GB", "A100_80GB", "A100_SXM", "H100"]
+        expected_tiers = [
+            "RTX_4090",
+            "A6000",
+            "A100_40GB",
+            "A100_80GB",
+            "A100_SXM",
+            "H100",
+        ]
 
         for tier in expected_tiers:
             assert tier in GPU_TIERS, f"Missing tier: {tier}"
@@ -210,7 +222,13 @@ class TestGPUTiers:
         """Test each GPU tier has all required configuration fields."""
         from heretic.vast import GPU_TIERS
 
-        required_fields = ["gpu_name", "max_price", "min_vram", "disk_gb", "description"]
+        required_fields = [
+            "gpu_name",
+            "max_price",
+            "min_vram",
+            "disk_gb",
+            "description",
+        ]
 
         for tier_name, tier_config in GPU_TIERS.items():
             for field in required_fields:
@@ -260,7 +278,9 @@ class TestFindVastaiCLI:
 
         with patch("pathlib.Path.exists", return_value=False):
             with patch("shutil.which") as mock_which:
-                mock_which.side_effect = lambda cmd: "/usr/bin/vastai" if cmd == "vastai" else None
+                mock_which.side_effect = (
+                    lambda cmd: "/usr/bin/vastai" if cmd == "vastai" else None
+                )
 
                 result = find_vastai_cli()
 
@@ -273,7 +293,9 @@ class TestFindVastaiCLI:
         with patch("pathlib.Path.exists", return_value=False):
             with patch("shutil.which") as mock_which:
                 # vastai not found, but vast is
-                mock_which.side_effect = lambda cmd: "/usr/bin/vast" if cmd == "vast" else None
+                mock_which.side_effect = (
+                    lambda cmd: "/usr/bin/vast" if cmd == "vast" else None
+                )
 
                 result = find_vastai_cli()
 
@@ -364,7 +386,9 @@ class TestRunVastaiCmd:
         config = VastConfig(api_key="test-key")
 
         with patch("heretic.vast.find_vastai_cli", return_value=["vastai"]):
-            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 120)):
+            with patch(
+                "subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 120)
+            ):
                 code, stdout, stderr = run_vastai_cmd(["show", "instances"], config)
 
         assert code == 1
@@ -462,10 +486,12 @@ class TestGetInstances:
 
         config = VastConfig(api_key="test-key")
 
-        instances_json = json.dumps([
-            {"id": 1, "actual_status": "running", "gpu_name": "RTX_4090"},
-            {"id": 2, "actual_status": "stopped", "gpu_name": "A100"},
-        ])
+        instances_json = json.dumps(
+            [
+                {"id": 1, "actual_status": "running", "gpu_name": "RTX_4090"},
+                {"id": 2, "actual_status": "stopped", "gpu_name": "A100"},
+            ]
+        )
 
         with patch("heretic.vast.run_vastai_cmd") as mock_cmd:
             mock_cmd.return_value = (0, instances_json, "")
@@ -619,6 +645,7 @@ class TestGetConnection:
         with patch("heretic.vast.FABRIC_AVAILABLE", False):
             with patch("heretic.vast.console.print"):  # Suppress output
                 from heretic.vast import get_connection
+
                 result = get_connection("12345", config)
 
         assert result is None
@@ -648,9 +675,13 @@ class TestGetConnection:
 
         with patch("heretic.vast.FABRIC_AVAILABLE", True):
             with patch("heretic.vast.Connection", mock_connection_cls):
-                with patch("heretic.vast.get_ssh_info", return_value=("ssh1.vast.ai", 22222)):
+                with patch(
+                    "heretic.vast.get_ssh_info", return_value=("ssh1.vast.ai", 22222)
+                ):
                     with patch("pathlib.Path.exists", return_value=True):
-                        with patch("pathlib.Path.home", return_value=Path("/home/user")):
+                        with patch(
+                            "pathlib.Path.home", return_value=Path("/home/user")
+                        ):
                             result = get_connection("12345", config)
 
         assert result is not None

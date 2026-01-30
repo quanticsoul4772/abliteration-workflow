@@ -40,7 +40,7 @@ def compute_sha256(filepath: Path) -> str:
 def generate_checksums(model_dir: Path) -> dict:
     """Generate checksums for all model files."""
     checksums = {}
-    
+
     for pattern in CHECKSUM_PATTERNS:
         for filepath in model_dir.glob(pattern):
             if filepath.is_file():
@@ -48,7 +48,7 @@ def generate_checksums(model_dir: Path) -> dict:
                 print(f"Hashing {relative_path}...", end=" ", flush=True)
                 checksums[str(relative_path)] = compute_sha256(filepath)
                 print("done")
-    
+
     return checksums
 
 
@@ -68,22 +68,22 @@ def main():
         default=None,
         help="Output file (default: <model_dir>/checksums.json)",
     )
-    
+
     args = parser.parse_args()
-    
+
     if not args.model_dir.exists():
         print(f"Error: Model directory not found: {args.model_dir}", file=sys.stderr)
         sys.exit(1)
-    
+
     output_path = args.output or (args.model_dir / "checksums.json")
-    
+
     print(f"Generating checksums for: {args.model_dir}")
     checksums = generate_checksums(args.model_dir)
-    
+
     if not checksums:
         print("Warning: No files found to checksum", file=sys.stderr)
         sys.exit(1)
-    
+
     # Write checksums file
     with open(output_path, "w") as f:
         json.dump(
@@ -95,7 +95,7 @@ def main():
             f,
             indent=2,
         )
-    
+
     print(f"\nChecksums written to: {output_path}")
     print(f"Total files: {len(checksums)}")
 

@@ -38,3 +38,4 @@ nul
 # Log files (can get very large)
 *.log
 heretic.log
+experiments/verbosity_v2/model/

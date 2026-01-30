@@ -6,6 +6,7 @@
 These tests use extensive mocking to avoid loading real models.
 The Model class wraps HuggingFace models and provides abliteration functionality.
 """
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -90,7 +91,7 @@ class TestModelGetChat:
 
 class TestModelInitialization:
     """Test Model initialization with mocked HuggingFace components.
-    
+
     Note: Full Model.__init__ tests are complex due to multiple side effects.
     These tests focus on specific behaviors using targeted mocking.
     """
@@ -113,11 +114,11 @@ class TestModelInitialization:
     def test_state_dict_caching_logic(self):
         """Test the state_dict caching logic."""
         import copy
-        
+
         # Simulate the caching that happens in Model.__init__
         original_weights = {"layer.weight": torch.randn(10, 10)}
         cached_weights = copy.deepcopy(original_weights)
-        
+
         # Verify it's a deep copy (modifying original doesn't affect cache)
         original_weights["layer.weight"][0, 0] = 999.0
         assert cached_weights["layer.weight"][0, 0] != 999.0
@@ -127,7 +128,7 @@ class TestModelInitialization:
         # Simulate the dtype fallback loop behavior
         dtypes = ["bfloat16", "float16", "float32"]
         loaded_dtype = None
-        
+
         for i, dtype in enumerate(dtypes):
             try:
                 if dtype == "bfloat16":
@@ -137,7 +138,7 @@ class TestModelInitialization:
                 break
             except Exception:
                 continue
-        
+
         # Should have loaded with float16 after bfloat16 failed
         assert loaded_dtype == "float16"
 
@@ -172,7 +173,7 @@ class TestModelGetLayers:
 
         mock_model = MagicMock()
         mock_layers = [MagicMock() for _ in range(32)]
-        
+
         # Simulate text-only model: language_model.layers doesn't exist (raises exception)
         # so it falls back to self.model.model.layers
         del mock_model.model.model.language_model

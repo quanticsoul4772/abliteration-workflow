@@ -6,6 +6,7 @@
 IMPORTANT: This file must be at tests/conftest.py for auto-discovery.
 DO NOT place in tests/fixtures/ subdirectory.
 """
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -15,17 +16,17 @@ import torch
 @pytest.fixture(autouse=True)
 def disable_cli_and_file_parsing(monkeypatch, tmp_path):
     """Disable CLI argument parsing and config file loading for Settings during tests.
-    
+
     The Settings class has cli_parse_args=True which causes it to parse
     sys.argv. When running under pytest, this picks up pytest's arguments
     and fails.
-    
+
     Also, the Settings class loads from config.toml if it exists, which
     would override the code defaults we're trying to test.
     """
     # Clear sys.argv to prevent Settings from parsing pytest args
     monkeypatch.setattr("sys.argv", ["pytest"])
-    
+
     # Change to a temp directory so config.toml isn't found
     monkeypatch.chdir(tmp_path)
 

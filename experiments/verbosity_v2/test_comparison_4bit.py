@@ -40,44 +40,46 @@ def load_model_4bit(model_path: str):
     """Load a model with 4-bit quantization to fit in 8GB VRAM."""
     print(f"\nLoading model (4-bit): {model_path}")
     start = time.time()
-    
+
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
         bnb_4bit_quant_type="nf4",
     )
-    
+
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         quantization_config=quantization_config,
         device_map="auto",
     )
-    
+
     print(f"  Loaded in {time.time() - start:.1f}s")
-    
+
     # Show memory usage
     if torch.cuda.is_available():
         mem_used = torch.cuda.memory_allocated() / 1e9
         mem_reserved = torch.cuda.memory_reserved() / 1e9
-        print(f"  GPU Memory: {mem_used:.1f}GB allocated, {mem_reserved:.1f}GB reserved")
-    
+        print(
+            f"  GPU Memory: {mem_used:.1f}GB allocated, {mem_reserved:.1f}GB reserved"
+        )
+
     return model, tokenizer
 
 
 def generate_response(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> str:
     """Generate a response to a prompt."""
     messages = [{"role": "user", "content": prompt}]
-    
+
     text = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
     )
-    
+
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
-    
+
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
@@ -85,13 +87,13 @@ def generate_response(model, tokenizer, prompt: str, max_new_tokens: int = 256) 
             do_sample=False,  # Deterministic for comparison
             pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
         )
-    
+
     # Decode only the new tokens
     response = tokenizer.decode(
-        outputs[0][inputs.input_ids.shape[1]:],
+        outputs[0][inputs.input_ids.shape[1] :],
         skip_special_tokens=True,
     )
-    
+
     return response.strip()
 
 
@@ -102,29 +104,29 @@ def count_words(text: str) -> int:
 
 def main():
     import sys
-    
+
     # Check for --abliterated-only flag
     abliterated_only = "--abliterated-only" in sys.argv
-    
+
     print("=" * 60)
     print("VERBOSITY V2 COMPARISON TEST (4-bit Quantization)")
     print("=" * 60)
     print("\nThis tests the verbosity_v2 experiment which used identical")
     print("questions with explicit verbosity instructions to isolate the")
     print("padding behavior from question complexity.")
-    
+
     if abliterated_only:
         print("\n*** Running abliterated model only (--abliterated-only flag) ***")
-    
+
     # Paths - use verbosity_v2 model
     abliterated_path = "./experiments/verbosity_v2/Qwen2.5-7B-Instruct-heretic"
     original_path = "Qwen/Qwen2.5-7B-Instruct"
-    
+
     # Check if abliterated model exists
     if not Path(abliterated_path).exists():
         print(f"ERROR: Abliterated model not found at {abliterated_path}")
         return
-    
+
     # Check GPU
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
@@ -134,24 +136,26 @@ def main():
     else:
         print("\nERROR: No GPU found. This script requires CUDA.")
         return
-    
+
     results = {"abliterated": [], "original": []}
-    
+
     # Test abliterated model
     print("\n" + "=" * 60)
     print("TESTING ABLITERATED MODEL (Verbosity V2)")
     print("=" * 60)
-    
+
     model, tokenizer = load_model_4bit(abliterated_path)
-    
+
     for prompt in TEST_PROMPTS:
         print(f"\nPrompt: {prompt}")
         response = generate_response(model, tokenizer, prompt)
         words = count_words(response)
-        results["abliterated"].append({"prompt": prompt, "response": response, "words": words})
+        results["abliterated"].append(
+            {"prompt": prompt, "response": response, "words": words}
+        )
         print(f"Response ({words} words):\n{response}\n")
         print("-" * 40)
-    
+
     # Free memory completely
     del model
     del tokenizer
@@ -159,56 +163,62 @@ def main():
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
     time.sleep(2)  # Let GPU fully release memory
-    
+
     if torch.cuda.is_available():
-        print(f"\nMemory after cleanup: {torch.cuda.memory_allocated() / 1e9:.2f}GB allocated")
-    
+        print(
+            f"\nMemory after cleanup: {torch.cuda.memory_allocated() / 1e9:.2f}GB allocated"
+        )
+
     # Test original model (skip if --abliterated-only)
     if not abliterated_only:
         print("\n" + "=" * 60)
         print("TESTING ORIGINAL MODEL")
         print("=" * 60)
-        
+
         model, tokenizer = load_model_4bit(original_path)
-        
+
         for prompt in TEST_PROMPTS:
             print(f"\nPrompt: {prompt}")
             response = generate_response(model, tokenizer, prompt)
             words = count_words(response)
-            results["original"].append({"prompt": prompt, "response": response, "words": words})
+            results["original"].append(
+                {"prompt": prompt, "response": response, "words": words}
+            )
             print(f"Response ({words} words):\n{response}\n")
             print("-" * 40)
-        
+
         del model
         del tokenizer
         torch.cuda.empty_cache()
     else:
         print("\n*** Skipping original model (--abliterated-only flag) ***")
-    
+
     # Summary
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    
+
     abl_words = [r["words"] for r in results["abliterated"]]
-    orig_words = [r["words"] for r in results["original"]] if results["original"] else None
-    
+    orig_words = (
+        [r["words"] for r in results["original"]] if results["original"] else None
+    )
+
     print(f"\nAbliterated Model (Verbosity V2):")
     print(f"  Total words: {sum(abl_words)}")
     print(f"  Average: {sum(abl_words) / len(abl_words):.1f} words/response")
     print(f"  Min: {min(abl_words)}, Max: {max(abl_words)}")
-    
+
     if orig_words:
         print(f"\nOriginal Model:")
         print(f"  Total words: {sum(orig_words)}")
         print(f"  Average: {sum(orig_words) / len(orig_words):.1f} words/response")
         print(f"  Min: {min(orig_words)}, Max: {max(orig_words)}")
-        
+
         reduction = (1 - sum(abl_words) / sum(orig_words)) * 100
         print(f"\n{'=' * 40}")
         print(f"VERBOSITY REDUCTION: {reduction:.1f}%")
         print(f"{'=' * 40}")
-        
+
         if reduction > 20:
             print("SUCCESS: Significant verbosity reduction achieved!")
         elif reduction > 0:
@@ -218,7 +228,7 @@ def main():
     else:
         print("\n*** Original model not tested - no comparison available ***")
         print("Run without --abliterated-only to compare with original model.")
-    
+
     # Per-prompt comparison
     if orig_words:
         print("\n" + "=" * 60)
@@ -232,34 +242,36 @@ def main():
             change = ((abl - orig) / orig * 100) if orig > 0 else 0
             prompt_short = prompt[:42] + "..." if len(prompt) > 45 else prompt
             print(f"{prompt_short:<45} {orig:>6} {abl:>6} {change:>+7.1f}%")
-    
+
     # Category analysis
     print("\n" + "=" * 60)
     print("CATEGORY ANALYSIS")
     print("=" * 60)
-    
+
     factual_idx = [0, 1, 2, 3]
     open_ended_idx = [4, 5, 6]
     explicit_verbose_idx = [7, 8]
-    
+
     def avg_words(indices, word_list):
         return sum(word_list[i] for i in indices) / len(indices)
-    
+
     print("\nFactual Questions (should be concise):")
     if orig_words:
         print(f"  Original avg: {avg_words(factual_idx, orig_words):.1f} words")
     print(f"  Abliterated avg: {avg_words(factual_idx, abl_words):.1f} words")
-    
+
     print("\nOpen-ended Questions (v2 should reduce verbosity here too):")
     if orig_words:
         print(f"  Original avg: {avg_words(open_ended_idx, orig_words):.1f} words")
     print(f"  Abliterated avg: {avg_words(open_ended_idx, abl_words):.1f} words")
-    
+
     print("\nExplicit Detail Requests (model should still elaborate when asked):")
     if orig_words:
-        print(f"  Original avg: {avg_words(explicit_verbose_idx, orig_words):.1f} words")
+        print(
+            f"  Original avg: {avg_words(explicit_verbose_idx, orig_words):.1f} words"
+        )
     print(f"  Abliterated avg: {avg_words(explicit_verbose_idx, abl_words):.1f} words")
-    
+
     # Save results
     output_path = Path("experiments/verbosity_v2/comparison_results.json")
     with open(output_path, "w") as f:

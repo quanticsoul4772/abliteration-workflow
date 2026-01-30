@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 """Unit tests for Settings/Config."""
+
 import pytest
 from pydantic import ValidationError
 

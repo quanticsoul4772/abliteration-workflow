@@ -7,6 +7,7 @@ These tests use proper mocking to avoid loading real models.
 The key insight is that Evaluator.__init__ calls several methods
 that need to be patched BEFORE instantiation.
 """
+
 import pytest
 from unittest.mock import patch
 import re
