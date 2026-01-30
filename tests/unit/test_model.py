@@ -601,6 +601,394 @@ class TestModelResiduals:
         assert residuals.dtype == torch.float32
 
 
+class TestModelPCAExtraction:
+    """Test Phase 1: Multi-Direction PCA Extraction."""
+
+    def test_get_refusal_directions_pca_returns_correct_shape(self):
+        """Test PCA extraction returns tensor with correct shape."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        # Create sample residuals: (n_samples, n_layers, hidden_dim)
+        n_good, n_bad = 10, 10
+        n_layers = 4
+        hidden_dim = 64
+        n_components = 3
+
+        good_residuals = torch.randn(n_good, n_layers, hidden_dim)
+        bad_residuals = torch.randn(n_bad, n_layers, hidden_dim)
+
+        directions = Model.get_refusal_directions_pca(
+            mock_model,
+            good_residuals,
+            bad_residuals,
+            n_components=n_components,
+            alpha=1.0,
+        )
+
+        # Should return (n_layers, n_components, hidden_dim)
+        assert directions.shape == (n_layers, n_components, hidden_dim)
+
+    def test_get_refusal_directions_pca_normalized(self):
+        """Test PCA directions are normalized."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        good_residuals = torch.randn(20, 4, 64)
+        bad_residuals = torch.randn(20, 4, 64)
+
+        directions = Model.get_refusal_directions_pca(
+            mock_model,
+            good_residuals,
+            bad_residuals,
+            n_components=2,
+        )
+
+        # Each direction should be unit normalized
+        for layer_idx in range(directions.shape[0]):
+            for comp_idx in range(directions.shape[1]):
+                norm = directions[layer_idx, comp_idx].norm().item()
+                assert abs(norm - 1.0) < 0.01, f"Direction not normalized: {norm}"
+
+    def test_get_refusal_directions_pca_alpha_effect(self):
+        """Test that alpha parameter affects results."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        good_residuals = torch.randn(20, 4, 64)
+        bad_residuals = torch.randn(20, 4, 64)
+
+        directions_alpha_0 = Model.get_refusal_directions_pca(
+            mock_model, good_residuals, bad_residuals, n_components=2, alpha=0.0
+        )
+        directions_alpha_1 = Model.get_refusal_directions_pca(
+            mock_model, good_residuals, bad_residuals, n_components=2, alpha=1.0
+        )
+
+        # Results should differ with different alpha
+        assert not torch.allclose(directions_alpha_0, directions_alpha_1)
+
+
+class TestModelOrthogonalization:
+    """Test Phase 5: Direction Orthogonalization."""
+
+    def test_extract_helpfulness_direction_shape(self):
+        """Test helpfulness direction extraction returns correct shape."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        n_layers = 8
+        hidden_dim = 128
+
+        helpful_residuals = torch.randn(10, n_layers, hidden_dim)
+        unhelpful_residuals = torch.randn(10, n_layers, hidden_dim)
+
+        direction = Model.extract_helpfulness_direction(
+            mock_model,
+            helpful_residuals,
+            unhelpful_residuals,
+        )
+
+        assert direction.shape == (n_layers, hidden_dim)
+
+    def test_extract_helpfulness_direction_normalized(self):
+        """Test helpfulness direction is normalized."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        helpful_residuals = torch.randn(10, 4, 64)
+        unhelpful_residuals = torch.randn(10, 4, 64)
+
+        direction = Model.extract_helpfulness_direction(
+            mock_model,
+            helpful_residuals,
+            unhelpful_residuals,
+        )
+
+        # Each layer's direction should be unit normalized
+        for layer_idx in range(direction.shape[0]):
+            norm = direction[layer_idx].norm().item()
+            assert abs(norm - 1.0) < 0.01
+
+    def test_orthogonalize_direction_removes_component(self):
+        """Test orthogonalization removes the projection."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        # Create target and remove directions
+        target = torch.randn(4, 64)
+        target = torch.nn.functional.normalize(target, p=2, dim=1)
+
+        remove = torch.randn(4, 64)
+        remove = torch.nn.functional.normalize(remove, p=2, dim=1)
+
+        result = Model.orthogonalize_direction(mock_model, target, remove)
+
+        # Result should be orthogonal to remove direction
+        dot_products = (result * remove).sum(dim=1)
+        for dot in dot_products:
+            assert abs(dot.item()) < 0.01, "Directions not orthogonal"
+
+    def test_orthogonalize_direction_normalized(self):
+        """Test orthogonalized direction is normalized."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        target = torch.randn(4, 64)
+        remove = torch.randn(4, 64)
+
+        result = Model.orthogonalize_direction(mock_model, target, remove)
+
+        for layer_idx in range(result.shape[0]):
+            norm = result[layer_idx].norm().item()
+            assert abs(norm - 1.0) < 0.01
+
+
+class TestModelIterativeAblation:
+    """Test Phase 4: Iterative Refinement."""
+
+    def test_abliterate_iterative_returns_rounds_count(self):
+        """Test iterative ablation returns number of rounds performed."""
+        from heretic.model import AbliterationParameters, Model
+
+        mock_model = MagicMock()
+        mock_model.model.dtype = torch.float32
+        mock_model.settings.batch_size = 2
+
+        # Mock residuals that differ enough to continue - need different values each call
+        # to ensure the magnitude check passes
+        call_count = [0]
+
+        def mock_residuals(prompts):
+            call_count[0] += 1
+            # Return different residuals each time with large magnitude difference
+            return torch.randn(5, 4, 64) * (10.0 + call_count[0])
+
+        mock_model.get_residuals_batched.side_effect = mock_residuals
+
+        # Mock abliterate to do nothing
+        mock_model.abliterate = MagicMock()
+
+        parameters = {
+            "attn.o_proj": AbliterationParameters(
+                max_weight=1.0,
+                max_weight_position=2.0,
+                min_weight=0.0,
+                min_weight_distance=4.0,
+            ),
+        }
+
+        with patch("heretic.model.print"):
+            with patch("heretic.model.empty_cache"):
+                rounds, kl_values = Model.abliterate_iterative(
+                    mock_model,
+                    good_prompts=["good1", "good2"],
+                    bad_prompts=["bad1", "bad2"],
+                    parameters=parameters,
+                    max_rounds=2,
+                    min_direction_magnitude=0.001,  # Low threshold to continue
+                )
+
+        assert rounds == 2
+        assert isinstance(kl_values, list)
+
+    def test_abliterate_iterative_stops_on_low_magnitude(self):
+        """Test iterative ablation stops when magnitude is too low."""
+        from heretic.model import AbliterationParameters, Model
+
+        mock_model = MagicMock()
+        mock_model.model.dtype = torch.float32
+
+        # Mock residuals that are nearly identical (low magnitude)
+        base_residuals = torch.randn(5, 4, 64)
+        mock_model.get_residuals_batched.side_effect = [
+            base_residuals,
+            base_residuals + 0.001,  # Very similar
+        ]
+
+        mock_model.abliterate = MagicMock()
+
+        parameters = {
+            "attn.o_proj": AbliterationParameters(
+                max_weight=1.0,
+                max_weight_position=2.0,
+                min_weight=0.0,
+                min_weight_distance=4.0,
+            ),
+        }
+
+        with patch("heretic.model.print"):
+            with patch("heretic.model.empty_cache"):
+                rounds, _ = Model.abliterate_iterative(
+                    mock_model,
+                    good_prompts=["good"],
+                    bad_prompts=["bad"],
+                    parameters=parameters,
+                    max_rounds=5,
+                    min_direction_magnitude=100.0,  # High threshold
+                )
+
+        # Should stop after 1 round due to low magnitude
+        assert rounds == 1
+
+
+class TestModelMultiDirectionAblation:
+    """Test Phase 1: Multi-Direction Ablation."""
+
+    def test_abliterate_multi_direction_applies_weights(self):
+        """Test multi-direction ablation applies configurable weights."""
+        from heretic.model import AbliterationParameters, Model
+
+        mock_model = MagicMock()
+        mock_model.abliterate = MagicMock()
+
+        # Create multi-direction tensor: (n_layers, n_components, hidden_dim)
+        refusal_directions = torch.randn(4, 3, 64)
+
+        direction_weights = [1.0, 0.5, 0.0]  # Third one has 0 weight
+
+        parameters = {
+            "attn.o_proj": AbliterationParameters(
+                max_weight=1.0,
+                max_weight_position=2.0,
+                min_weight=0.0,
+                min_weight_distance=4.0,
+            ),
+        }
+
+        with patch("heretic.model.print"):
+            Model.abliterate_multi_direction(
+                mock_model,
+                refusal_directions,
+                direction_weights,
+                parameters,
+            )
+
+        # Should have called abliterate twice (skipping 0-weight direction)
+        assert mock_model.abliterate.call_count == 2
+
+    def test_abliterate_multi_direction_scales_weights(self):
+        """Test multi-direction ablation scales parameters by weight."""
+        from heretic.model import AbliterationParameters, Model
+
+        mock_model = MagicMock()
+
+        captured_params = []
+
+        def capture_abliterate(directions, direction_index, params):
+            captured_params.append(params)
+
+        mock_model.abliterate = capture_abliterate
+
+        refusal_directions = torch.randn(4, 2, 64)
+        direction_weights = [1.0, 0.5]
+
+        parameters = {
+            "attn.o_proj": AbliterationParameters(
+                max_weight=2.0,
+                max_weight_position=2.0,
+                min_weight=1.0,
+                min_weight_distance=4.0,
+            ),
+        }
+
+        with patch("heretic.model.print"):
+            Model.abliterate_multi_direction(
+                mock_model,
+                refusal_directions,
+                direction_weights,
+                parameters,
+            )
+
+        # First call should have max_weight=2.0 (1.0 * 2.0)
+        assert captured_params[0]["attn.o_proj"].max_weight == 2.0
+        # Second call should have max_weight=1.0 (0.5 * 2.0)
+        assert captured_params[1]["attn.o_proj"].max_weight == 1.0
+
+
+class TestModelGenerate:
+    """Test the generate method."""
+
+    def test_generate_calls_tokenizer(self):
+        """Test generate calls tokenizer with chat template."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+        mock_model.settings.system_prompt = "You are helpful."
+        mock_model.model.device = torch.device("cpu")
+        mock_model.model.generate.return_value = torch.tensor([[1, 2, 3, 4, 5]])
+
+        # Mock get_chat to return proper chat format
+        mock_model.get_chat.return_value = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello"},
+        ]
+
+        mock_model.tokenizer.apply_chat_template.return_value = ["<s>test</s>"]
+        mock_model.tokenizer.eos_token_id = 2
+
+        # Mock the tokenizer call to return BatchEncoding-like object
+        mock_inputs = MagicMock()
+        mock_inputs.to.return_value = mock_inputs
+        mock_inputs.__getitem__ = MagicMock(return_value=torch.tensor([[1, 2, 3]]))
+        mock_model.tokenizer.return_value = mock_inputs
+
+        inputs, outputs = Model.generate(mock_model, ["Hello"], max_new_tokens=10)
+
+        # Verify tokenizer was called
+        mock_model.tokenizer.assert_called()
+        mock_model.model.generate.assert_called()
+
+
+class TestModelMultiTokenLogprobs:
+    """Test Phase 3: Multi-token logprobs."""
+
+    def test_get_logprobs_single_token(self):
+        """Test get_logprobs with n_tokens=1 (original behavior)."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        mock_logits = torch.randn(2, 32000)
+        mock_outputs = MagicMock()
+        mock_outputs.scores = [mock_logits]
+        mock_inputs = {"input_ids": torch.tensor([[1, 2, 3]])}
+        mock_model.generate.return_value = (mock_inputs, mock_outputs)
+
+        logprobs = Model.get_logprobs(mock_model, ["P1", "P2"], n_tokens=1)
+
+        # Shape should be (n_prompts, vocab_size)
+        assert logprobs.shape == (2, 32000)
+
+    def test_get_logprobs_multi_token(self):
+        """Test get_logprobs with n_tokens>1."""
+        from heretic.model import Model
+
+        mock_model = MagicMock()
+
+        # 3 tokens generated
+        mock_outputs = MagicMock()
+        mock_outputs.scores = [
+            torch.randn(2, 32000),
+            torch.randn(2, 32000),
+            torch.randn(2, 32000),
+        ]
+        mock_inputs = {"input_ids": torch.tensor([[1, 2, 3]])}
+        mock_model.generate.return_value = (mock_inputs, mock_outputs)
+
+        logprobs = Model.get_logprobs(mock_model, ["P1", "P2"], n_tokens=3)
+
+        # Shape should be (n_prompts, n_tokens, vocab_size)
+        assert logprobs.shape == (2, 3, 32000)
+
+
 @pytest.mark.slow
 @pytest.mark.integration
 class TestModelIntegration:

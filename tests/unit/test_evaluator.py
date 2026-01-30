@@ -9,7 +9,7 @@ that need to be patched BEFORE instantiation.
 """
 
 import re
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -209,6 +209,287 @@ class TestEvaluatorScoring:
         mock_model.get_responses_batched.assert_called_once()
         call_kwargs = mock_model.get_responses_batched.call_args
         assert call_kwargs.kwargs["max_tokens"] == 30
+
+
+class TestSoftRefusalDetection:
+    """Test Phase 2: Soft refusal detection."""
+
+    @pytest.fixture
+    def evaluator_with_soft_detection(self, mock_model):
+        """Create Evaluator with soft refusal detection enabled."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            refusal_detection_mode="moderate",  # Enables soft refusals
+            soft_refusal_markers=[
+                "i'd prefer not to",
+                "i'm not comfortable",
+                "let me suggest an alternative",
+            ],
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["test prompt"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(1, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        return evaluator
+
+    def test_soft_refusal_detection_enabled(self, evaluator_with_soft_detection):
+        """Test soft refusal markers are detected when enabled."""
+        evaluator = evaluator_with_soft_detection
+
+        # Soft refusals should be detected
+        assert evaluator.is_refusal("I'd prefer not to discuss that topic")
+        assert evaluator.is_refusal("I'm not comfortable with this request")
+        assert evaluator.is_refusal("Let me suggest an alternative approach")
+
+    def test_soft_refusal_pattern_compiled(self, evaluator_with_soft_detection):
+        """Test soft refusal pattern is compiled."""
+        evaluator = evaluator_with_soft_detection
+
+        assert hasattr(evaluator, "soft_refusal_pattern")
+        assert evaluator.soft_refusal_pattern is not None
+        assert isinstance(evaluator.soft_refusal_pattern, re.Pattern)
+
+
+class TestEvasivePatternDetection:
+    """Test Phase 2: Evasive response detection."""
+
+    @pytest.fixture
+    def evaluator_with_evasive_detection(self, mock_model):
+        """Create Evaluator with evasive pattern detection enabled."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            refusal_detection_mode="lenient",  # Enables evasive patterns
+            evasive_patterns=[
+                r"let's talk about .* instead",
+                r"how about we discuss",
+                r"i'd rather focus on",
+            ],
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["test prompt"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(1, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        return evaluator
+
+    def test_evasive_pattern_detection(self, evaluator_with_evasive_detection):
+        """Test evasive patterns are detected when enabled."""
+        evaluator = evaluator_with_evasive_detection
+
+        # Evasive responses should be detected
+        assert evaluator.is_refusal("Let's talk about something else instead")
+        assert evaluator.is_refusal("How about we discuss a different topic")
+        assert evaluator.is_refusal("I'd rather focus on positive things")
+
+    def test_evasive_pattern_compiled(self, evaluator_with_evasive_detection):
+        """Test evasive pattern is compiled."""
+        evaluator = evaluator_with_evasive_detection
+
+        assert hasattr(evaluator, "evasive_pattern")
+        assert evaluator.evasive_pattern is not None
+        assert isinstance(evaluator.evasive_pattern, re.Pattern)
+
+    def test_evasive_disabled_in_strict_mode(self, mock_model):
+        """Test evasive patterns are NOT detected in strict mode."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            refusal_detection_mode="strict",
+            detect_soft_refusals=False,
+            detect_evasive_responses=False,
+            evasive_patterns=[
+                r"let's talk about .* instead",
+            ],
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["test prompt"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(1, 32000)
+            mock_model.get_responses_batched.return_value = ["Sure!"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        # In strict mode, only core refusal markers should be detected
+        # This text doesn't contain core markers, so should NOT be a refusal
+        assert not evaluator.is_refusal("Let's talk about something else instead")
+
+
+class TestMultiTokenKLDivergence:
+    """Test Phase 3: Multi-token KL divergence."""
+
+    @pytest.fixture
+    def evaluator_multi_token(self, mock_model):
+        """Create Evaluator with multi-token KL divergence."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            kl_divergence_tokens=5,  # Multi-token mode
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["prompt1", "prompt2"]
+            # Multi-token returns shape (n_prompts, n_tokens, vocab_size)
+            mock_model.get_logprobs_batched.return_value = torch.randn(2, 5, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry", "Sure!"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        return evaluator
+
+    def test_multi_token_kl_stored(self, evaluator_multi_token):
+        """Test multi-token KL configuration is stored."""
+        assert evaluator_multi_token.kl_tokens == 5
+
+    def test_multi_token_base_logprobs_shape(self, evaluator_multi_token):
+        """Test base_logprobs has correct shape for multi-token."""
+        # Shape should be (n_prompts, n_tokens, vocab_size)
+        assert evaluator_multi_token.base_logprobs.shape[1] == 5
+
+
+class TestComputeKLDivergence:
+    """Test _compute_kl_divergence method."""
+
+    def test_compute_kl_single_token(self, mock_model):
+        """Test single-token KL divergence calculation."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            kl_divergence_tokens=1,
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["prompt1"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(1, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        # Reset mock and set up for KL calculation
+        mock_model.get_logprobs_batched.return_value = torch.randn(1, 32000)
+
+        kl = evaluator._compute_kl_divergence()
+
+        assert isinstance(kl, float)
+
+    def test_compute_kl_multi_token(self, mock_model):
+        """Test multi-token KL divergence calculation."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            kl_divergence_tokens=3,
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["prompt1"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(1, 3, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        # Reset mock for KL calculation
+        mock_model.get_logprobs_batched.return_value = torch.randn(1, 3, 32000)
+
+        kl = evaluator._compute_kl_divergence()
+
+        assert isinstance(kl, float)
+
+
+class TestGetScore:
+    """Test the get_score method."""
+
+    def test_get_score_returns_tuple(self, mock_model):
+        """Test get_score returns (score, kl_divergence, refusals)."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            kl_divergence_scale=1.0,
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["prompt1", "prompt2"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(2, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry", "Sure!"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        # Setup for get_score call
+        mock_model.get_logprobs_batched.return_value = torch.randn(2, 32000)
+        mock_model.get_responses_batched.return_value = ["I'm sorry", "Sure!"]
+
+        with patch("heretic.evaluator.print"):
+            score, kl_divergence, refusals = evaluator.get_score()
+
+        assert isinstance(score, tuple)
+        assert len(score) == 2  # (kl_score, refusal_score)
+        assert isinstance(kl_divergence, float)
+        assert isinstance(refusals, int)
+
+    def test_get_score_parallel_execution(self, mock_model):
+        """Test get_score runs KL and refusal counting in parallel."""
+        from heretic.config import Settings
+
+        settings = Settings(
+            model="mock-model",
+            kl_divergence_scale=1.0,
+        )
+
+        with patch("heretic.evaluator.load_prompts") as mock_load:
+            mock_load.return_value = ["prompt1", "prompt2"]
+            mock_model.get_logprobs_batched.return_value = torch.randn(2, 32000)
+            mock_model.get_responses_batched.return_value = ["I'm sorry", "Sure!"]
+
+            with patch("heretic.evaluator.print"):
+                from heretic.evaluator import Evaluator
+
+                evaluator = Evaluator(settings, mock_model)
+
+        # Track method calls
+        evaluator._compute_kl_divergence = MagicMock(return_value=0.5)
+        evaluator.count_refusals = MagicMock(return_value=1)
+
+        with patch("heretic.evaluator.print"):
+            score, kl, refusals = evaluator.get_score()
+
+        # Both methods should have been called
+        evaluator._compute_kl_divergence.assert_called_once()
+        evaluator.count_refusals.assert_called_once()
 
 
 @pytest.mark.slow
