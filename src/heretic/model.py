@@ -7,6 +7,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import LongTensor, Tensor
@@ -353,29 +354,274 @@ class Model:
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[str]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+    def get_logprobs(self, prompts: list[str], n_tokens: int = 1) -> Tensor:
+        """Get log probabilities for first n_tokens.
+        
+        Args:
+            prompts: List of prompts to process
+            n_tokens: Number of tokens to generate (default 1 for backward compatibility)
+            
+        Returns:
+            Tensor of shape (n_prompts, vocab_size) if n_tokens=1,
+            or (n_prompts, n_tokens, vocab_size) if n_tokens>1
+        """
         _, outputs = self.generate(
             prompts,
-            max_new_tokens=1,
+            max_new_tokens=n_tokens,
             output_scores=True,
             return_dict_in_generate=True,
         )
 
-        # Logits for the first (only) generated token.
-        logits = outputs.scores[0]
+        if n_tokens == 1:
+            # Original behavior: return shape (prompt, vocab_size)
+            logits = outputs.scores[0]
+            return F.log_softmax(logits, dim=-1)
+        else:
+            # Multi-token: return shape (prompt, n_tokens, vocab_size)
+            # outputs.scores is a tuple of (n_prompts, vocab_size) tensors
+            logits = torch.stack(outputs.scores, dim=1)
+            return F.log_softmax(logits, dim=-1)
 
-        # The returned tensor has shape (prompt, token).
-        return F.log_softmax(logits, dim=-1)
-
-    def get_logprobs_batched(self, prompts: list[str]) -> Tensor:
+    def get_logprobs_batched(self, prompts: list[str], n_tokens: int = 1) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
+            logprobs.append(self.get_logprobs(batch, n_tokens=n_tokens))
 
         return torch.cat(logprobs, dim=0)
+
+    # Phase 1: Multi-Direction PCA Extraction
+    def get_refusal_directions_pca(
+        self,
+        good_residuals: Tensor,
+        bad_residuals: Tensor,
+        n_components: int = 3,
+        alpha: float = 1.0,
+    ) -> Tensor:
+        """Extract multiple refusal directions using TRUE Contrastive PCA.
+        
+        Finds directions that maximize variance in bad residuals while
+        minimizing variance in good residuals. This is done by computing
+        eigenvectors of (Σ_bad - α*Σ_good).
+        
+        Args:
+            good_residuals: Shape (n_good, n_layers, hidden_dim)
+            bad_residuals: Shape (n_bad, n_layers, hidden_dim)
+            n_components: Number of principal components to extract
+            alpha: Weight for good covariance subtraction (default 1.0)
+            
+        Returns:
+            Tensor of shape (n_layers, n_components, hidden_dim)
+        """
+        n_layers = good_residuals.shape[1]
+        directions = []
+        
+        for layer_idx in range(n_layers):
+            good_layer = good_residuals[:, layer_idx, :].cpu().numpy()
+            bad_layer = bad_residuals[:, layer_idx, :].cpu().numpy()
+            
+            # Center the data
+            good_centered = good_layer - good_layer.mean(axis=0)
+            bad_centered = bad_layer - bad_layer.mean(axis=0)
+            
+            # Compute covariance matrices
+            # Add small regularization for numerical stability
+            n_good = good_centered.shape[0]
+            n_bad = bad_centered.shape[0]
+            
+            cov_good = (good_centered.T @ good_centered) / max(n_good - 1, 1)
+            cov_bad = (bad_centered.T @ bad_centered) / max(n_bad - 1, 1)
+            
+            # Contrastive covariance: directions high-variance in bad, low-variance in good
+            cov_contrastive = cov_bad - alpha * cov_good
+            
+            # Eigendecomposition (eigenvectors with largest eigenvalues)
+            try:
+                eigenvalues, eigenvectors = np.linalg.eigh(cov_contrastive)
+            except np.linalg.LinAlgError:
+                # Fallback to mean difference if eigendecomposition fails
+                diff = bad_layer.mean(axis=0) - good_layer.mean(axis=0)
+                diff = diff / (np.linalg.norm(diff) + 1e-8)
+                layer_directions = torch.from_numpy(
+                    np.tile(diff, (n_components, 1))
+                ).float()
+                directions.append(layer_directions)
+                continue
+            
+            # Sort by eigenvalue descending, take top n_components
+            idx = np.argsort(eigenvalues)[::-1][:n_components]
+            top_directions = eigenvectors[:, idx].T  # Shape: (n_components, hidden_dim)
+            
+            # Normalize each direction
+            layer_directions = torch.from_numpy(top_directions).float()
+            layer_directions = F.normalize(layer_directions, p=2, dim=1)
+            directions.append(layer_directions)
+        
+        return torch.stack(directions)
+
+    # Phase 5: Direction Orthogonalization
+    def extract_helpfulness_direction(
+        self,
+        helpful_residuals: Tensor,
+        unhelpful_residuals: Tensor,
+    ) -> Tensor:
+        """Extract direction that encodes 'helpfulness'.
+        
+        Uses contrast between helpful and unhelpful/low-quality responses.
+        
+        Args:
+            helpful_residuals: Residuals from helpful prompts (n_samples, n_layers, hidden_dim)
+            unhelpful_residuals: Residuals from unhelpful prompts (n_samples, n_layers, hidden_dim)
+            
+        Returns:
+            Helpfulness direction tensor of shape (n_layers, hidden_dim)
+        """
+        helpfulness_direction = F.normalize(
+            helpful_residuals.mean(dim=0) - unhelpful_residuals.mean(dim=0),
+            p=2,
+            dim=1,
+        )
+        return helpfulness_direction
+
+    def orthogonalize_direction(
+        self,
+        target_direction: Tensor,
+        remove_direction: Tensor,
+    ) -> Tensor:
+        """Remove component of remove_direction from target_direction.
+        
+        Args:
+            target_direction: Direction to modify, shape (n_layers, hidden_dim)
+            remove_direction: Direction to remove, shape (n_layers, hidden_dim)
+            
+        Returns:
+            Orthogonalized direction, shape (n_layers, hidden_dim)
+        """
+        # Compute dot product per layer
+        dot_product = (target_direction * remove_direction).sum(dim=1, keepdim=True)
+        
+        # Compute projection
+        projection = dot_product * remove_direction
+        
+        # Remove projection and renormalize
+        orthogonal = target_direction - projection
+        return F.normalize(orthogonal, p=2, dim=1)
+
+    # Phase 4: Iterative Refinement
+    def abliterate_iterative(
+        self,
+        good_prompts: list[str],
+        bad_prompts: list[str],
+        parameters: dict[str, "AbliterationParameters"],
+        max_rounds: int = 2,
+        min_direction_magnitude: float = 0.1,
+        max_kl_per_round: float = 0.5,
+        base_logprobs: Tensor | None = None,
+        kl_check_prompts: list[str] | None = None,
+    ) -> tuple[int, list[float]]:
+        """Iteratively extract and ablate refusal directions.
+        
+        CAUTION: This is experimental. Re-extracting from ablated models
+        may find artifacts rather than true refusal directions.
+        
+        Args:
+            good_prompts: Prompts that don't trigger refusals
+            bad_prompts: Prompts that trigger refusals
+            parameters: Abliteration parameters for each component
+            max_rounds: Maximum number of ablation rounds
+            min_direction_magnitude: Minimum magnitude (pre-norm) to continue
+            max_kl_per_round: Maximum KL divergence allowed per round
+            base_logprobs: Pre-computed logprobs for KL calculation
+            kl_check_prompts: Prompts to use for KL checking
+            
+        Returns:
+            Tuple of (rounds_performed, list of KL values per round)
+        """
+        kl_values = []
+        
+        for round_idx in range(max_rounds):
+            print(f"  * Iterative ablation round {round_idx + 1}/{max_rounds}...")
+            
+            # Extract residual directions from current model state
+            good_residuals = self.get_residuals_batched(good_prompts)
+            bad_residuals = self.get_residuals_batched(bad_prompts)
+            
+            # Compute raw difference BEFORE normalization for magnitude check
+            raw_difference = bad_residuals.mean(dim=0) - good_residuals.mean(dim=0)
+            
+            # Check magnitude BEFORE normalization (FIX for original bug)
+            direction_magnitude = raw_difference.norm(dim=1).mean().item()
+            print(f"    * Direction magnitude (pre-norm): {direction_magnitude:.4f}")
+            
+            if direction_magnitude < min_direction_magnitude:
+                print(f"    * Below threshold ({min_direction_magnitude}), stopping iteration")
+                break
+            
+            # Now normalize for abliteration
+            refusal_directions = F.normalize(raw_difference, p=2, dim=1)
+            
+            # Ablate this round's directions (per-layer mode)
+            self.abliterate(refusal_directions, None, parameters)
+            
+            # Capability guard - measure KL after each round
+            if round_idx < max_rounds - 1 and base_logprobs is not None and kl_check_prompts is not None:
+                current_logprobs = self.get_logprobs_batched(kl_check_prompts)
+                round_kl = F.kl_div(
+                    current_logprobs,
+                    base_logprobs,
+                    reduction="batchmean",
+                    log_target=True,
+                ).item()
+                kl_values.append(round_kl)
+                print(f"    * Round KL: {round_kl:.3f}")
+                
+                if round_kl > max_kl_per_round:
+                    print(f"    * Round KL exceeds limit ({max_kl_per_round}), stopping")
+                    break
+            
+            # Clean up
+            del good_residuals, bad_residuals, raw_difference
+            empty_cache()
+        
+        return round_idx + 1, kl_values
+
+    def abliterate_multi_direction(
+        self,
+        refusal_directions: Tensor,
+        direction_weights: list[float],
+        parameters: dict[str, "AbliterationParameters"],
+    ):
+        """Abliterate multiple refusal directions with configurable weights.
+        
+        Args:
+            refusal_directions: Shape (n_layers, n_components, hidden_dim)
+            direction_weights: Weight for each component
+            parameters: Abliteration parameters for each component
+        """
+        n_components = refusal_directions.shape[1]
+        
+        for component_idx in range(min(n_components, len(direction_weights))):
+            weight_multiplier = direction_weights[component_idx]
+            if weight_multiplier <= 0:
+                continue
+                
+            print(f"    * Abliterating direction {component_idx + 1}/{n_components} (weight={weight_multiplier:.2f})")
+            
+            # Extract single direction for this component: (n_layers, hidden_dim)
+            single_direction = refusal_directions[:, component_idx, :]
+            
+            # Scale weights in parameters by multiplier
+            scaled_parameters = {}
+            for comp_name, params in parameters.items():
+                scaled_parameters[comp_name] = AbliterationParameters(
+                    max_weight=params.max_weight * weight_multiplier,
+                    max_weight_position=params.max_weight_position,
+                    min_weight=params.min_weight * weight_multiplier,
+                    min_weight_distance=params.min_weight_distance,
+                )
+            
+            # Apply abliteration with scaled weights (per-layer mode)
+            self.abliterate(single_direction, None, scaled_parameters)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         chat_prompt: str = self.tokenizer.apply_chat_template(

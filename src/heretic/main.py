@@ -199,11 +199,63 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
-    refusal_directions = F.normalize(
-        bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
-        p=2,
-        dim=1,
-    )
+    
+    # Phase 1: Support multi-direction PCA extraction
+    if settings.use_pca_extraction and settings.n_refusal_directions > 1:
+        print(f"* Extracting {settings.n_refusal_directions} refusal directions using contrastive PCA...")
+        refusal_directions_multi = model.get_refusal_directions_pca(
+            good_residuals,
+            bad_residuals,
+            n_components=settings.n_refusal_directions,
+            alpha=settings.pca_alpha,
+        )
+        # For compatibility, also compute mean-difference direction
+        refusal_directions = F.normalize(
+            bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
+            p=2,
+            dim=1,
+        )
+        use_multi_direction = True
+    else:
+        # Original single-direction approach
+        refusal_directions = F.normalize(
+            bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
+            p=2,
+            dim=1,
+        )
+        refusal_directions_multi = None
+        use_multi_direction = False
+    
+    # Phase 5: Direction orthogonalization
+    helpfulness_direction = None
+    if settings.orthogonalize_directions:
+        print("* Extracting helpfulness direction for orthogonalization...")
+        try:
+            helpful_prompts = load_prompts(settings.helpfulness_prompts)
+            unhelpful_prompts = load_prompts(settings.unhelpfulness_prompts)
+            print(f"  * Loaded {len(helpful_prompts)} helpful prompts")
+            print(f"  * Loaded {len(unhelpful_prompts)} unhelpful prompts")
+            
+            helpful_residuals = model.get_residuals_batched(helpful_prompts)
+            unhelpful_residuals = model.get_residuals_batched(unhelpful_prompts)
+            
+            helpfulness_direction = model.extract_helpfulness_direction(
+                helpful_residuals,
+                unhelpful_residuals,
+            )
+            
+            # Orthogonalize the refusal direction
+            print("  * Orthogonalizing refusal direction against helpfulness...")
+            refusal_directions = model.orthogonalize_direction(
+                refusal_directions,
+                helpfulness_direction,
+            )
+            
+            del helpful_residuals, unhelpful_residuals
+        except Exception as e:
+            print(f"[yellow]Warning: Failed to load helpfulness datasets: {e}[/]")
+            print("[yellow]Continuing without orthogonalization.[/]")
+    
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals
     empty_cache()
@@ -293,7 +345,33 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        
+        # Phase 4: Support iterative refinement
+        if settings.iterative_rounds > 1:
+            print(f"  * Using iterative ablation ({settings.iterative_rounds} rounds)...")
+            rounds_done, kl_values = model.abliterate_iterative(
+                good_prompts,
+                bad_prompts,
+                parameters,
+                max_rounds=settings.iterative_rounds,
+                min_direction_magnitude=settings.min_direction_magnitude,
+                max_kl_per_round=settings.max_kl_per_round,
+                base_logprobs=evaluator.base_logprobs if settings.kl_divergence_tokens == 1 else None,
+                kl_check_prompts=evaluator.good_prompts if settings.kl_divergence_tokens == 1 else None,
+            )
+            print(f"  * Completed {rounds_done} iteration rounds")
+        elif use_multi_direction and refusal_directions_multi is not None:
+            # Phase 1: Multi-direction ablation
+            print(f"  * Abliterating {settings.n_refusal_directions} directions...")
+            model.abliterate_multi_direction(
+                refusal_directions_multi,
+                settings.direction_weights,
+                parameters,
+            )
+        else:
+            # Original single-direction ablation
+            model.abliterate(refusal_directions, direction_index, parameters)
+        
         print("* Evaluating...")
         try:
             score, kl_divergence, refusals = evaluator.get_score()
@@ -439,11 +517,29 @@ def run():
             k: AbliterationParameters(**v)
             for k, v in trial.user_attrs["parameters"].items()
         }
-        model.abliterate(
-            refusal_directions,
-            trial.user_attrs["direction_index"],
-            parameters,
-        )
+        
+        # Use same ablation logic as during optimization
+        if settings.iterative_rounds > 1:
+            model.abliterate_iterative(
+                good_prompts,
+                bad_prompts,
+                parameters,
+                max_rounds=settings.iterative_rounds,
+                min_direction_magnitude=settings.min_direction_magnitude,
+                max_kl_per_round=settings.max_kl_per_round,
+            )
+        elif use_multi_direction and refusal_directions_multi is not None:
+            model.abliterate_multi_direction(
+                refusal_directions_multi,
+                settings.direction_weights,
+                parameters,
+            )
+        else:
+            model.abliterate(
+                refusal_directions,
+                trial.user_attrs["direction_index"],
+                parameters,
+            )
 
         # Determine save path
         if settings.auto_select_path:
@@ -538,11 +634,29 @@ def run():
             k: AbliterationParameters(**v)
             for k, v in trial.user_attrs["parameters"].items()
         }
-        model.abliterate(
-            refusal_directions,
-            trial.user_attrs["direction_index"],
-            parameters,
-        )
+        
+        # Use same ablation logic as during optimization
+        if settings.iterative_rounds > 1:
+            model.abliterate_iterative(
+                good_prompts,
+                bad_prompts,
+                parameters,
+                max_rounds=settings.iterative_rounds,
+                min_direction_magnitude=settings.min_direction_magnitude,
+                max_kl_per_round=settings.max_kl_per_round,
+            )
+        elif use_multi_direction and refusal_directions_multi is not None:
+            model.abliterate_multi_direction(
+                refusal_directions_multi,
+                settings.direction_weights,
+                parameters,
+            )
+        else:
+            model.abliterate(
+                refusal_directions,
+                trial.user_attrs["direction_index"],
+                parameters,
+            )
 
         while True:
             print()

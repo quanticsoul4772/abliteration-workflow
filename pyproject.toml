@@ -27,6 +27,7 @@ dependencies = [
     "ddgs>=9.10.0",
     "hf-transfer>=0.1.9",
     "huggingface-hub>=0.34.4",
+    "numpy>=1.24.0",  # Required for contrastive PCA
     "optuna>=4.5.0",
     "pydantic-settings>=2.10.1",
     "questionary>=2.1.1",
