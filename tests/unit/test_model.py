@@ -605,8 +605,8 @@ class TestModelPCAExtraction:
     """Test Phase 1: Multi-Direction PCA Extraction."""
 
     def test_get_refusal_directions_pca_returns_correct_shape(self):
-        """Test PCA extraction returns tensor with correct shape."""
-        from heretic.model import Model
+        """Test PCA extraction returns PCAExtractionResult with correct shapes."""
+        from heretic.model import Model, PCAExtractionResult
 
         mock_model = MagicMock()
 
@@ -619,7 +619,7 @@ class TestModelPCAExtraction:
         good_residuals = torch.randn(n_good, n_layers, hidden_dim)
         bad_residuals = torch.randn(n_bad, n_layers, hidden_dim)
 
-        directions = Model.get_refusal_directions_pca(
+        result = Model.get_refusal_directions_pca(
             mock_model,
             good_residuals,
             bad_residuals,
@@ -627,8 +627,12 @@ class TestModelPCAExtraction:
             alpha=1.0,
         )
 
-        # Should return (n_layers, n_components, hidden_dim)
-        assert directions.shape == (n_layers, n_components, hidden_dim)
+        # Should return PCAExtractionResult
+        assert isinstance(result, PCAExtractionResult)
+        # Directions should be (n_layers, n_components, hidden_dim)
+        assert result.directions.shape == (n_layers, n_components, hidden_dim)
+        # Eigenvalues should be (n_layers, n_components)
+        assert result.eigenvalues.shape == (n_layers, n_components)
 
     def test_get_refusal_directions_pca_normalized(self):
         """Test PCA directions are normalized."""
@@ -639,7 +643,7 @@ class TestModelPCAExtraction:
         good_residuals = torch.randn(20, 4, 64)
         bad_residuals = torch.randn(20, 4, 64)
 
-        directions = Model.get_refusal_directions_pca(
+        result = Model.get_refusal_directions_pca(
             mock_model,
             good_residuals,
             bad_residuals,
@@ -647,9 +651,9 @@ class TestModelPCAExtraction:
         )
 
         # Each direction should be unit normalized
-        for layer_idx in range(directions.shape[0]):
-            for comp_idx in range(directions.shape[1]):
-                norm = directions[layer_idx, comp_idx].norm().item()
+        for layer_idx in range(result.directions.shape[0]):
+            for comp_idx in range(result.directions.shape[1]):
+                norm = result.directions[layer_idx, comp_idx].norm().item()
                 assert abs(norm - 1.0) < 0.01, f"Direction not normalized: {norm}"
 
     def test_get_refusal_directions_pca_alpha_effect(self):
@@ -661,15 +665,154 @@ class TestModelPCAExtraction:
         good_residuals = torch.randn(20, 4, 64)
         bad_residuals = torch.randn(20, 4, 64)
 
-        directions_alpha_0 = Model.get_refusal_directions_pca(
+        result_alpha_0 = Model.get_refusal_directions_pca(
             mock_model, good_residuals, bad_residuals, n_components=2, alpha=0.0
         )
-        directions_alpha_1 = Model.get_refusal_directions_pca(
+        result_alpha_1 = Model.get_refusal_directions_pca(
             mock_model, good_residuals, bad_residuals, n_components=2, alpha=1.0
         )
 
         # Results should differ with different alpha
-        assert not torch.allclose(directions_alpha_0, directions_alpha_1)
+        assert not torch.allclose(result_alpha_0.directions, result_alpha_1.directions)
+
+
+class TestPCAExtractionResult:
+    """Test PCAExtractionResult eigenvalue weight computation."""
+
+    def test_get_eigenvalue_weights_softmax(self):
+        """Test softmax eigenvalue weight computation."""
+        from heretic.model import PCAExtractionResult
+
+        # Create result with known eigenvalues
+        directions = torch.randn(4, 3, 64)
+        # Eigenvalues: larger first eigenvalue
+        eigenvalues = torch.tensor(
+            [
+                [10.0, 5.0, 1.0],
+                [12.0, 4.0, 2.0],
+                [8.0, 6.0, 1.5],
+                [11.0, 5.0, 0.5],
+            ]
+        )
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+        weights = result.get_eigenvalue_weights(method="softmax")
+
+        assert len(weights) == 3
+        # First weight should be 1.0 (scaled)
+        assert abs(weights[0] - 1.0) < 0.01
+        # Weights should be decreasing (larger eigenvalue = larger weight)
+        assert weights[0] >= weights[1] >= weights[2]
+
+    def test_get_eigenvalue_weights_proportional(self):
+        """Test proportional eigenvalue weight computation."""
+        from heretic.model import PCAExtractionResult
+
+        directions = torch.randn(4, 3, 64)
+        eigenvalues = torch.tensor(
+            [
+                [10.0, 5.0, 2.5],
+                [10.0, 5.0, 2.5],
+                [10.0, 5.0, 2.5],
+                [10.0, 5.0, 2.5],
+            ]
+        )
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+        weights = result.get_eigenvalue_weights(method="proportional")
+
+        assert len(weights) == 3
+        # First weight should be 1.0
+        assert abs(weights[0] - 1.0) < 0.01
+        # With uniform eigenvalues across layers, ratio should be preserved
+        # Second should be 0.5 of first, third should be 0.25 of first
+        assert abs(weights[1] - 0.5) < 0.01
+        assert abs(weights[2] - 0.25) < 0.01
+
+    def test_get_eigenvalue_weights_log_proportional(self):
+        """Test log-proportional eigenvalue weight computation."""
+        from heretic.model import PCAExtractionResult
+
+        directions = torch.randn(4, 3, 64)
+        eigenvalues = torch.tensor(
+            [
+                [100.0, 10.0, 1.0],
+                [100.0, 10.0, 1.0],
+                [100.0, 10.0, 1.0],
+                [100.0, 10.0, 1.0],
+            ]
+        )
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+        weights = result.get_eigenvalue_weights(method="log_proportional")
+
+        assert len(weights) == 3
+        assert abs(weights[0] - 1.0) < 0.01
+        # Log-proportional should reduce dominance of first eigenvalue
+        # compared to proportional (second weight should be higher)
+        weights_prop = result.get_eigenvalue_weights(method="proportional")
+        assert weights[1] > weights_prop[1]
+
+    def test_get_eigenvalue_weights_handles_negative_eigenvalues(self):
+        """Test that negative eigenvalues are handled gracefully."""
+        from heretic.model import PCAExtractionResult
+
+        directions = torch.randn(4, 3, 64)
+        # Contrastive PCA can produce negative eigenvalues
+        eigenvalues = torch.tensor(
+            [
+                [10.0, -2.0, -5.0],
+                [8.0, 1.0, -3.0],
+                [12.0, -1.0, -4.0],
+                [9.0, 0.0, -2.0],
+            ]
+        )
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+
+        # Should not raise, should clamp negative values
+        weights = result.get_eigenvalue_weights(method="softmax")
+        assert len(weights) == 3
+        assert all(w >= 0 for w in weights)
+
+    def test_get_eigenvalue_weights_temperature_effect(self):
+        """Test that temperature affects softmax distribution."""
+        from heretic.model import PCAExtractionResult
+
+        directions = torch.randn(4, 3, 64)
+        eigenvalues = torch.tensor(
+            [
+                [10.0, 5.0, 1.0],
+                [10.0, 5.0, 1.0],
+                [10.0, 5.0, 1.0],
+                [10.0, 5.0, 1.0],
+            ]
+        )
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+
+        weights_low_temp = result.get_eigenvalue_weights(
+            method="softmax", temperature=0.5
+        )
+        weights_high_temp = result.get_eigenvalue_weights(
+            method="softmax", temperature=2.0
+        )
+
+        # Higher temperature = more uniform weights
+        # So second weight should be closer to first with high temperature
+        assert weights_high_temp[1] > weights_low_temp[1]
+
+    def test_get_eigenvalue_weights_invalid_method(self):
+        """Test that invalid method raises ValueError."""
+        from heretic.model import PCAExtractionResult
+
+        directions = torch.randn(4, 3, 64)
+        eigenvalues = torch.randn(4, 3)
+
+        result = PCAExtractionResult(directions=directions, eigenvalues=eigenvalues)
+
+        with pytest.raises(ValueError, match="Unknown eigenvalue weight method"):
+            result.get_eigenvalue_weights(method="invalid_method")
 
 
 class TestModelOrthogonalization:

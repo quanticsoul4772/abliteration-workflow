@@ -33,6 +33,62 @@ class AbliterationParameters:
     min_weight_distance: float
 
 
+@dataclass
+class PCAExtractionResult:
+    """Result from PCA-based refusal direction extraction.
+
+    Contains both the directions and their associated eigenvalues,
+    enabling eigenvalue-based weighting for multi-direction ablation.
+    """
+
+    directions: Tensor  # Shape: (n_layers, n_components, hidden_dim)
+    eigenvalues: Tensor  # Shape: (n_layers, n_components) - per-layer eigenvalues
+
+    def get_eigenvalue_weights(
+        self,
+        method: str = "softmax",
+        temperature: float = 1.0,
+    ) -> list[float]:
+        """Compute direction weights from eigenvalues.
+
+        Args:
+            method: Weight computation method:
+                - "softmax": Apply softmax to mean eigenvalues (default)
+                - "proportional": Weights proportional to mean eigenvalues
+                - "log_proportional": Weights proportional to log of mean eigenvalues
+            temperature: Temperature for softmax (higher = more uniform)
+
+        Returns:
+            List of weights, one per direction component
+        """
+        # Average eigenvalues across layers
+        mean_eigenvalues = self.eigenvalues.mean(dim=0)  # Shape: (n_components,)
+
+        # Ensure positive values (eigenvalues from contrastive PCA can be negative)
+        # We use max(0, x) + epsilon to handle negative eigenvalues
+        positive_eigenvalues = torch.clamp(mean_eigenvalues, min=1e-8)
+
+        if method == "softmax":
+            # Softmax normalization (sum to 1, smooth distribution)
+            weights = F.softmax(positive_eigenvalues / temperature, dim=0)
+        elif method == "proportional":
+            # Direct proportional weights (sum to 1)
+            weights = positive_eigenvalues / positive_eigenvalues.sum()
+        elif method == "log_proportional":
+            # Log-proportional (reduces dominance of largest eigenvalue)
+            log_eigenvalues = torch.log1p(positive_eigenvalues)
+            weights = log_eigenvalues / log_eigenvalues.sum()
+        else:
+            raise ValueError(f"Unknown eigenvalue weight method: {method}")
+
+        # Scale so that the first (largest) weight is 1.0
+        # This maintains compatibility with existing weight semantics
+        if weights[0] > 0:
+            weights = weights / weights[0]
+
+        return weights.tolist()
+
+
 class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -401,7 +457,7 @@ class Model:
         bad_residuals: Tensor,
         n_components: int = 3,
         alpha: float = 1.0,
-    ) -> Tensor:
+    ) -> PCAExtractionResult:
         """Extract multiple refusal directions using TRUE Contrastive PCA.
 
         Finds directions that maximize variance in bad residuals while
@@ -415,10 +471,13 @@ class Model:
             alpha: Weight for good covariance subtraction (default 1.0)
 
         Returns:
-            Tensor of shape (n_layers, n_components, hidden_dim)
+            PCAExtractionResult containing:
+                - directions: Tensor of shape (n_layers, n_components, hidden_dim)
+                - eigenvalues: Tensor of shape (n_layers, n_components)
         """
         n_layers = good_residuals.shape[1]
         directions = []
+        all_eigenvalues = []
 
         for layer_idx in range(n_layers):
             good_layer = good_residuals[:, layer_idx, :].cpu().numpy()
@@ -450,10 +509,13 @@ class Model:
                     np.tile(diff, (n_components, 1))
                 ).float()
                 directions.append(layer_directions)
+                # Use uniform eigenvalues as fallback
+                all_eigenvalues.append(torch.ones(n_components))
                 continue
 
             # Sort by eigenvalue descending, take top n_components
             idx = np.argsort(eigenvalues)[::-1][:n_components]
+            top_eigenvalues = eigenvalues[idx]  # Shape: (n_components,)
             top_directions = eigenvectors[:, idx].T  # Shape: (n_components, hidden_dim)
 
             # Normalize each direction
@@ -461,7 +523,14 @@ class Model:
             layer_directions = F.normalize(layer_directions, p=2, dim=1)
             directions.append(layer_directions)
 
-        return torch.stack(directions)
+            # Store eigenvalues for this layer
+            layer_eigenvalues = torch.from_numpy(top_eigenvalues.copy()).float()
+            all_eigenvalues.append(layer_eigenvalues)
+
+        return PCAExtractionResult(
+            directions=torch.stack(directions),
+            eigenvalues=torch.stack(all_eigenvalues),
+        )
 
     # Phase 5: Direction Orthogonalization
     def extract_helpfulness_direction(

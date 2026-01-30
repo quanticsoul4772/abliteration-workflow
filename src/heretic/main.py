@@ -207,16 +207,32 @@ def run():
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
     # Phase 1: Support multi-direction PCA extraction
+    direction_weights = settings.direction_weights  # Default fixed weights
     if settings.use_pca_extraction and settings.n_refusal_directions > 1:
         print(
             f"* Extracting {settings.n_refusal_directions} refusal directions using contrastive PCA..."
         )
-        refusal_directions_multi = model.get_refusal_directions_pca(
+        pca_result = model.get_refusal_directions_pca(
             good_residuals,
             bad_residuals,
             n_components=settings.n_refusal_directions,
             alpha=settings.pca_alpha,
         )
+        refusal_directions_multi = pca_result.directions
+
+        # Compute eigenvalue-based weights if enabled
+        if settings.use_eigenvalue_weights:
+            direction_weights = pca_result.get_eigenvalue_weights(
+                method=settings.eigenvalue_weight_method,
+                temperature=settings.eigenvalue_weight_temperature,
+            )
+            print(
+                f"  * Using eigenvalue-based weights ({settings.eigenvalue_weight_method}): "
+                f"{[f'{w:.3f}' for w in direction_weights]}"
+            )
+        else:
+            print(f"  * Using fixed weights: {settings.direction_weights}")
+
         # For compatibility, also compute mean-difference direction
         refusal_directions = F.normalize(
             bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
@@ -379,7 +395,7 @@ def run():
             print(f"  * Abliterating {settings.n_refusal_directions} directions...")
             model.abliterate_multi_direction(
                 refusal_directions_multi,
-                settings.direction_weights,
+                direction_weights,
                 parameters,
             )
         else:
@@ -537,7 +553,7 @@ def run():
             elif use_multi_direction and refusal_directions_multi is not None:
                 model.abliterate_multi_direction(
                     refusal_directions_multi,
-                    settings.direction_weights,
+                    direction_weights,
                     parameters,
                 )
             else:

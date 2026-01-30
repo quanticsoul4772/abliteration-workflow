@@ -234,7 +234,24 @@ class Settings(BaseSettings):
 
     direction_weights: list[float] = Field(
         default=[1.0, 0.5, 0.25],
-        description="Weights for each PCA direction when abliterating multiple directions.",
+        description="Weights for each PCA direction when abliterating multiple directions. Ignored when use_eigenvalue_weights=True.",
+    )
+
+    use_eigenvalue_weights: bool = Field(
+        default=True,
+        description="Use eigenvalues from PCA to determine direction weights instead of fixed weights. More principled than fixed [1.0, 0.5, 0.25].",
+    )
+
+    eigenvalue_weight_method: Literal["softmax", "proportional", "log_proportional"] = (
+        Field(
+            default="softmax",
+            description="Method for computing weights from eigenvalues: softmax (smooth), proportional (direct), log_proportional (reduced dominance).",
+        )
+    )
+
+    eigenvalue_weight_temperature: float = Field(
+        default=1.0,
+        description="Temperature for softmax eigenvalue weighting. Higher = more uniform weights. Only used when eigenvalue_weight_method='softmax'.",
     )
 
     pca_alpha: float = Field(
