@@ -412,5 +412,6 @@ column = "text"
 # Used only when orthogonalize_directions = true
 [unhelpfulness_prompts]
 dataset = "allenai/c4"
+config = "en"
 split = "train[:200]"
 column = "text"
