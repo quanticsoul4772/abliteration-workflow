@@ -3,8 +3,14 @@ name: "CodeQL Analysis"
 on:
   push:
     branches: [ "master", "main" ]
+    paths:
+      - '**.py'
+      - '.github/workflows/codeql.yml'
   pull_request:
     branches: [ "master", "main" ]
+    paths:
+      - '**.py'
+      - '.github/workflows/codeql.yml'
   schedule:
     - cron: '0 0 * * 0'  # Weekly on Sunday
 
@@ -33,12 +39,6 @@ jobs:
       with:
         languages: ${{ matrix.language }}
         queries: security-and-quality
-        # Exclude directories with JS/TS files we don't want to scan
-        paths-ignore:
-          - '.agents/**'
-          - 'tools/**'
-          - '.venv/**'
-          - '**/node_modules/**'
 
     - name: Autobuild
       uses: github/codeql-action/autobuild@v3
