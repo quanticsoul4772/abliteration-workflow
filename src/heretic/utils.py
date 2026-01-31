@@ -2,9 +2,11 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import gc
+import time
+from functools import wraps
 from importlib.metadata import version
 from pathlib import Path
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 import torch
 from accelerate.utils import (
@@ -22,7 +24,7 @@ from requests import HTTPError
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
-from .exceptions import DatasetConfigError, DatasetError, NetworkTimeoutError
+from .exceptions import BatchSizeError, DatasetConfigError, DatasetError, NetworkTimeoutError
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -30,10 +32,117 @@ logger = get_logger(__name__)
 print = Console(highlight=False).print
 
 
-class BatchSizeError(Exception):
-    """Raised when batch size is too large for available GPU memory."""
+# Re-export BatchSizeError for backwards compatibility
+__all__ = ["BatchSizeError", "print", "empty_cache", "load_prompts", "batchify", "get_gpu_memory_info", "retry_with_backoff"]
 
-    pass
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    exponential_base: float = 2.0,
+    retryable_exceptions: tuple = (ConnectionError, Timeout),
+) -> Callable:
+    """Decorator for retrying functions with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Initial delay in seconds (default: 1.0)
+        max_delay: Maximum delay between retries (default: 60.0)
+        exponential_base: Base for exponential backoff (default: 2.0)
+        retryable_exceptions: Tuple of exception types to retry on
+
+    Returns:
+        Decorated function with retry logic
+
+    Example:
+        @retry_with_backoff(max_retries=3)
+        def download_file(url):
+            ...
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except retryable_exceptions as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        delay = min(base_delay * (exponential_base ** attempt), max_delay)
+                        logger.warning(
+                            f"Retry {attempt + 1}/{max_retries} after {delay:.1f}s",
+                            error=str(e),
+                            func=func.__name__,
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            f"All {max_retries} retries exhausted",
+                            error=str(e),
+                            func=func.__name__,
+                        )
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+def _load_streaming_dataset(
+    specification: "DatasetSpecification",
+    sample_count: int,
+    base_split: str,
+) -> list[str]:
+    """Load dataset using streaming with retry logic.
+
+    Internal helper that handles the actual streaming with retries.
+    """
+    max_retries = 3
+    base_delay = 2.0
+
+    for attempt in range(max_retries + 1):
+        try:
+            dataset = load_dataset(
+                specification.dataset,
+                specification.config,
+                split=base_split,
+                streaming=True,
+            )
+
+            prompts = []
+            for i, example in enumerate(dataset):
+                if i >= sample_count:
+                    break
+                prompts.append(example[specification.column])
+
+            if len(prompts) < sample_count:
+                raise ValueError(
+                    f"Stream exhausted early: got {len(prompts)}, expected {sample_count}"
+                )
+
+            return prompts
+
+        except (ConnectionError, Timeout) as e:
+            if attempt < max_retries:
+                delay = min(base_delay * (2 ** attempt), 60.0)
+                logger.warning(
+                    f"Network error, retry {attempt + 1}/{max_retries} after {delay:.1f}s",
+                    error=str(e),
+                )
+                time.sleep(delay)
+            else:
+                raise NetworkTimeoutError(
+                    f"Network error after {max_retries} retries streaming '{specification.dataset}'. "
+                    f"Check internet connection."
+                ) from e
+        except KeyError as e:
+            raise DatasetConfigError(
+                f"Column '{specification.column}' not found in dataset '{specification.dataset}'. "
+                f"Check column name or list available columns."
+            ) from e
+
+    # Should never reach here, but satisfy type checker
+    raise NetworkTimeoutError(f"Failed to load streaming dataset after {max_retries} retries")
 
 
 def get_gpu_memory_info() -> dict:
@@ -148,7 +257,7 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
 
         # FAIL LOUDLY: C4 requires explicit sample count
         if sample_count is None:
-            raise ValueError(
+            raise DatasetConfigError(
                 f"C4 dataset requires explicit sample count in split. "
                 f"Got: '{specification.split}'. "
                 f"Expected format: 'train[:N]' or 'train[M:N]'"
@@ -156,7 +265,7 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
 
         # FAIL LOUDLY: C4 requires config parameter
         if not specification.config:
-            raise ValueError(
+            raise DatasetConfigError(
                 "C4 dataset requires config parameter (e.g., 'en'). "
                 "Use --unhelpfulness-prompts.config en"
             )
@@ -167,29 +276,17 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
 
         base_split = re.sub(r"\[.*\]", "", specification.split)
 
-        # Load as streaming dataset
+        # Load with retry logic
         try:
-            dataset = load_dataset(
-                specification.dataset,
-                specification.config,
-                split=base_split,  # Use base split without slice notation
-                streaming=True,  # KEY: Stream instead of download
-            )
-        except (ConnectionError, Timeout) as e:
-            logger.error(
-                "Network error streaming dataset",
-                dataset=specification.dataset,
-                config=specification.config,
-                error=str(e),
-            )
-            print(f"[red]Network Error: Cannot stream dataset[/]")
+            return _load_streaming_dataset(specification, sample_count, base_split)
+        except DatasetNotFoundError as e:
+            print(f"[red]Dataset Not Found: {specification.dataset}[/]")
             print("[yellow]Solutions:[/]")
-            print("  1. Check your internet connection")
-            print("  2. Try again in a few minutes")
-            print("  3. Check HuggingFace Hub status: https://status.huggingface.co")
-            raise NetworkTimeoutError(
-                f"Network timeout while streaming dataset '{specification.dataset}'. "
-                f"Check internet connection and try again."
+            print("  1. Check dataset name spelling")
+            print("  2. Search HuggingFace Hub: https://huggingface.co/datasets")
+            raise DatasetError(
+                f"Dataset '{specification.dataset}' not found. "
+                f"Search: https://huggingface.co/datasets"
             ) from e
         except ValueError as e:
             # Config parameter error
@@ -205,56 +302,8 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
                     f"Try: --unhelpfulness-prompts.config en"
                 ) from e
             raise
-        except DatasetNotFoundError as e:
-            print(f"[red]Dataset Not Found: {specification.dataset}[/]")
-            print("[yellow]Solutions:[/]")
-            print("  1. Check dataset name spelling")
-            print("  2. Search HuggingFace Hub: https://huggingface.co/datasets")
-            raise DatasetError(
-                f"Dataset '{specification.dataset}' not found. "
-                f"Search: https://huggingface.co/datasets"
-            ) from e
         except KeyboardInterrupt:
             raise
-
-        # Take N samples from stream and materialize to list
-        # This downloads only the data needed, not full shards
-        prompts = []
-        try:
-            for i, example in enumerate(dataset):
-                if i >= sample_count:
-                    break
-                prompts.append(example[specification.column])
-        except (ConnectionError, Timeout) as e:
-            print(f"[red]Network Error: Stream interrupted[/]")
-            print(f"[yellow]Got {len(prompts)}/{sample_count} examples before failure[/]")
-            print("[yellow]Solutions:[/]")
-            print("  1. Check internet connection")
-            print("  2. Try again - streaming will resume")
-            raise NetworkTimeoutError(
-                f"Network error while streaming examples (got {len(prompts)}/{sample_count}). "
-                f"Check internet connection."
-            ) from e
-        except KeyError as e:
-            print(f"[red]Column Not Found: {specification.column}[/]")
-            print(f"[yellow]Dataset: {specification.dataset}[/]")
-            print("[yellow]Solutions:[/]")
-            print("  1. Check column name spelling")
-            print(f"  2. List available columns: dataset.column_names")
-            raise DatasetConfigError(
-                f"Column '{specification.column}' not found in dataset '{specification.dataset}'. "
-                f"Check column name or list available columns."
-            ) from e
-        except KeyboardInterrupt:
-            raise
-
-        # FAIL LOUDLY: Verify we got expected count
-        if len(prompts) < sample_count:
-            raise ValueError(
-                f"C4 stream exhausted early: got {len(prompts)}, expected {sample_count}"
-            )
-
-        return prompts
     else:
         # Other datasets: use existing download behavior
         try:

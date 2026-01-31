@@ -1,477 +1,375 @@
-# Heretic - Neural Behavior Modification for LLMs
+# Heretic
 
-Heretic is a tool for surgical behavior modification in language models using activation direction analysis and Optuna-based optimization.
+[![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/badge/pypi-heretic--llm-blue.svg)](https://pypi.org/project/heretic-llm/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-While best known for **abliteration** (removing refusal behaviors), heretic's technique is general: it can extract and modify *any* behavioral direction encoded in model weights - verbosity, hedging, sycophancy, and more.
+Tool for modifying language model behaviors through activation direction analysis and Optuna-based optimization.
 
-> **Vision:** Build a personal neural engineering workbench for understanding and reshaping how language models behave at the weight level. See [ROADMAP.md](ROADMAP.md) for the full vision.
+## What It Does
 
-## Quick Start
+Heretic identifies and modifies behavioral directions encoded in language model weights. It uses contrastive activation analysis to extract direction vectors, then applies orthogonalization to remove unwanted behaviors while preserving model capabilities.
 
-```bash
-# Install
-pip install heretic-llm
-
-# Run abliteration (interactive)
-heretic Qwen/Qwen3-4B-Instruct-2507
-
-# Run abliteration (fully automated)
-heretic Qwen/Qwen3-4B-Instruct-2507 --auto-select --hf-upload username/model-heretic
-```
-
-## Cloud GPU Deployment
-
-For users without local GPU access, use our automation scripts or Docker image.
-
-### Option 1: Docker Image (Recommended)
-
-Pre-built Docker image works on RunPod, Vast.ai, and local GPU setups:
-
-```bash
-# Pull and run
-docker run --gpus all -it quanticsoul4772/heretic heretic Qwen/Qwen3-4B-Instruct-2507
-
-# With HuggingFace token for gated models
-docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/heretic \
-    heretic meta-llama/Llama-3.1-8B-Instruct --auto-select
-
-# With persistent cache
-docker run --gpus all -v heretic-cache:/workspace/.cache -it quanticsoul4772/heretic \
-    heretic Qwen/Qwen3-4B-Instruct-2507 --auto-select --hf-upload user/model-heretic
-```
-
-**On RunPod:** Use `quanticsoul4772/heretic` as your Docker image when creating a pod.
-
-**On Vast.ai:** Select `quanticsoul4772/heretic` as your Docker image when renting a GPU.
-
-### Option 2: RunPod Automation Script (Windows)
-
-```powershell
-# Initial setup (one-time)
-.\runpod.ps1 install-runpodctl  # Download CLI tool
-.\runpod.ps1 check-tools        # Verify prerequisites
-
-# Run abliteration
-.\runpod.ps1 create-pod         # Create RTX 4090 pod (~$0.34/hr)
-.\runpod.ps1 setup              # Install heretic
-.\runpod.ps1 run Qwen/Qwen3-4B-Instruct-2507
-.\runpod.ps1 stop-pod           # Stop billing when done
-```
-
-### Option 3: Vast.ai CLI (Recommended for Large Models)
-
-Heretic includes a dedicated Python CLI for Vast.ai with a rich terminal dashboard:
-
-```bash
-# Install the CLI
-pip install heretic-llm
-
-# Or install with Vast.ai support
-pip install heretic-llm fabric rich
-
-# Quick start
-heretic-vast create A100_80GB 2    # Create 2x A100 80GB instance
-heretic-vast setup                  # Install heretic on instance
-heretic-vast run Qwen/Qwen2.5-72B-Instruct
-heretic-vast watch                  # Live monitoring dashboard
-heretic-vast stop                   # Stop when done
-```
-
-**Key Features:**
-- GPU tier presets: RTX_4090, A6000, A100_40GB, A100_80GB, H100
-- Live dashboard with GPU utilization, memory, and progress
-- Automatic SSH key handling via Fabric
-- Model download from remote instances
-
-See `heretic-vast --help` for all commands.
-
-See [WORKFLOW.md](WORKFLOW.md) for detailed instructions.
+The technique works for any behavior with distinguishable activation patterns:
+- **Refusal behaviors** (most common use case - "abliteration")
+- **Verbosity/padding** (tested and validated)
+- **Hedging language** (framework ready)
+- **Sycophancy** (future research)
+- **Other behavioral patterns** (experimental)
 
 ## Features
 
-- Automatic optimization using Optuna TPE sampler for multi-objective hyperparameter tuning
-- Resume support via persistent SQLite storage
-- Pareto-optimal trial selection balancing capability preservation and behavior modification
-- Multi-GPU support with automatic or manual device mapping
-- HuggingFace integration for direct model upload
-- Fully automated mode for headless operation
-- Gradio chat interface for testing modified models
-- Cloud CLI for Vast.ai GPU management
-- Experiments framework for testing new behavioral directions
+**Core Capabilities:**
+- Automatic hyperparameter optimization using Optuna TPE sampler
+- Multi-objective optimization balancing behavior removal and capability preservation
+- Resume support via SQLite storage (can resume interrupted experiments)
+- Pareto-optimal trial selection from optimization results
+- Direct HuggingFace Hub upload of modified models
+- Interactive chat interface for testing modifications
 
-### Advanced Abliteration
+**Advanced Techniques (Phase 1-7):**
+- Neural refusal detection using zero-shot NLI (catches soft refusals)
+- Supervised probing + ensemble extraction for robust direction vectors
+- Activation-based calibration for adaptive weight scaling
+- Concept cone extraction for category-specific ablation
+- Contrastive Activation Addition (CAA) for combined removal + addition
+- Circuit-level ablation targeting specific attention heads
+- Warm-start parameter transfer using model family profiles
 
-Heretic includes state-of-the-art abliteration improvements:
-
-| Feature | Default | Description |
-|---------|---------|-------------|
-| **Neural Refusal Detection** | ON | Zero-shot NLI catches soft refusals and evasive responses |
-| **Supervised Probing + Ensemble** | ON | Linear probes combined with PCA for better direction extraction |
-| **Activation Calibration** | ON | Adaptive weight scaling based on refusal activation strength |
-| **Concept Cones** | OFF | Category-specific directions (violence, fraud, self-harm, etc.) |
-| **Contrastive Activation Addition** | OFF | Add compliance direction alongside refusal removal |
-| **Circuit-Level Ablation** | OFF | Target specific attention heads (not for GQA models) |
-| **Warm-Start Transfer** | ON | Model family profiles for 2x faster Optuna convergence |
-
-### Performance Optimizations
-
-- In-memory weight caching (5-10x faster trial reset vs disk reload)
-- Optional torch.compile() support (1.5-2x inference speedup)
+**Performance Optimizations:**
+- GPU-accelerated PCA (15-20x faster than CPU, ~5 min for 32B models)
+- In-memory weight caching (5-10x faster trial reset)
+- torch.compile() support (1.5-2x inference speedup)
 - Early stopping for refusal detection (40-60% faster evaluation)
-- Parallel KL divergence and refusal counting
-- Model family warm-start for faster optimization convergence
+- Parallel evaluation (KL divergence and refusal counting)
 
-## Requirements
-
-- Python >= 3.10
-- CUDA-capable GPU (16GB+ VRAM recommended)
-- Or use Docker with `--gpus all`
-- Or use RunPod/Vast.ai for cloud GPU access
-
-## Important Notes
-
-### Large Model Support (32B+)
-
-For models with >14B parameters on multi-GPU systems, special configuration is required:
-
-- **Use `device_map="balanced"`** for even GPU distribution (not "auto")
-- **Set `cache_weights=false`** (required for multi-GPU, incompatible with weight caching)
-- **Set `iterative_rounds=0`** to reduce memory pressure
-- **Use `batch_size=4`** for stable performance
-
-See `LESSONS_LEARNED.md` for detailed troubleshooting and configuration guidance.
-
-**Expected runtime for 32B models:**
-- 4x RTX 4090: ~30-35 hours for 200 trials
-- 1x A100 80GB: ~12-15 hours for 200 trials (faster with weight caching enabled)
-
-### GQA Model Limitations
-
-Models using Grouped Query Attention (GQA) have limited feature support:
-
-- **Affected models:** Llama 3.x, Qwen 2.5, and others with `num_kv_heads != num_attention_heads`
-- **Circuit-level ablation:** Not supported (use standard layer-level ablation)
-- **All other features:** Fully supported
-
-Heretic will automatically detect GQA models and raise a clear error if incompatible features are enabled.
+**Cloud GPU Tools:**
+- Dedicated `heretic-vast` CLI for Vast.ai management
+- GPU tier presets (RTX_4090, A6000, A100, H100)
+- Live terminal dashboard with real-time monitoring
+- Docker image for RunPod/Vast.ai deployment
 
 ## Installation
 
-```bash
-# From PyPI
-pip install heretic-llm
+### From PyPI
 
-# From source
+```bash
+pip install heretic-llm
+```
+
+### From Source
+
+```bash
 git clone https://github.com/p-e-w/heretic
 cd heretic
 uv sync --all-extras --dev
-uv run heretic <model-name>
+```
 
-# Using Docker
+### Using Docker
+
+```bash
 docker pull quanticsoul4772/heretic
 docker run --gpus all -it quanticsoul4772/heretic heretic --help
 ```
 
-## Usage
+## Quick Start
+
+### Basic Usage
 
 ```bash
-# Basic usage (interactive)
-heretic <model-name>
+# Interactive mode (select trial from Pareto frontier)
+heretic Qwen/Qwen2.5-7B-Instruct
+
+# Fully automated (headless operation)
+heretic Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload username/model-heretic
 
 # Quick test with fewer trials
-heretic <model-name> --n-trials 50
-
-# Fully automated (for cloud/CI)
-heretic <model-name> --auto-select --hf-upload username/model-heretic
-
-# With custom config
-heretic --model <model-name> --config config.toml
-
-# Examples
-heretic Qwen/Qwen3-4B-Instruct-2507
-heretic meta-llama/Llama-3.1-8B-Instruct --n-trials 100
-heretic mistralai/Mistral-7B-Instruct-v0.3 --auto-select --auto-select-path ./output
+heretic Qwen/Qwen2.5-7B-Instruct --n-trials 50
 ```
 
-### Automation Flags
+### Cloud GPU Deployment
 
-| Flag | Description |
-|------|-------------|
-| `--auto-select` | Auto-select best trial and save without prompts |
-| `--auto-select-path PATH` | Custom output path (default: `./<model>-heretic`) |
-| `--hf-upload REPO` | Upload to HuggingFace (e.g., `user/model-heretic`) |
-| `--hf-private` | Make HuggingFace repo private |
-| `--n-trials N` | Number of trials (default: 200) |
-| `--compile` | Enable torch.compile() for faster inference |
-| `--storage URL` | Optuna storage URL for resume support (e.g., `sqlite:///study.db`) |
-| `--study-name NAME` | Optuna study name (default: `heretic_study`) |
-| `--refusal-check-tokens N` | Tokens for refusal detection (default: 30) |
+#### Option 1: Vast.ai CLI (Recommended)
 
-### Advanced Feature Flags
+```bash
+# Setup
+export VAST_API_KEY='your-api-key'
+pip install heretic-llm fabric rich
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--use-neural-refusal-detection` | true | Zero-shot NLI refusal detection |
-| `--ensemble-probe-pca` | true | Combine supervised probe + PCA |
-| `--use-activation-calibration` | true | Adaptive weight scaling |
-| `--use-warm-start-params` | true | Model family warm-start |
-| `--use-concept-cones` | false | Category-specific directions |
-| `--use-caa` | false | Contrastive Activation Addition |
-| `--use-circuit-ablation` | false | Attention head targeting (no GQA support) |
-| `--model-family` | auto | Override detected family (llama/qwen/mistral/gemma/phi) |
+# Run abliteration on cloud
+heretic-vast create A100_80GB 1          # Rent GPU instance
+heretic-vast setup                        # Install heretic
+heretic-vast run Qwen/Qwen2.5-32B-Instruct
+heretic-vast watch                        # Monitor progress
+heretic-vast download MODEL_NAME          # Download results
+heretic-vast stop                         # Stop billing
+```
+
+See [WORKFLOW.md](WORKFLOW.md) for detailed cloud GPU instructions.
+
+#### Option 2: Docker on RunPod/Vast.ai
+
+```bash
+docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/heretic \
+    heretic Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload user/model-heretic
+```
 
 ## Configuration
 
-Copy `config.default.toml` to `config.toml` and customize:
+### Command-Line Flags
+
+**Essential Flags:**
+```bash
+--model MODEL              # HuggingFace model ID or local path
+--n-trials N               # Number of optimization trials (default: 200)
+--auto-select              # Auto-select and save best trial (headless mode)
+--hf-upload REPO           # Upload to HuggingFace Hub
+--storage sqlite:///file   # Resume support (recommended)
+```
+
+**Performance Flags:**
+```bash
+--compile                  # Enable torch.compile() (1.5-2x faster)
+--batch-size N             # Batch size (0 = auto-detect)
+--cache-weights BOOL       # In-memory caching (default: true, set false for 32B+)
+```
+
+**Phase 1-7 Features:**
+```bash
+--use-neural-refusal-detection    # Zero-shot NLI detection (default: true)
+--ensemble-probe-pca              # Supervised + PCA ensemble (default: true)
+--use-activation-calibration      # Adaptive scaling (default: true)
+--use-concept-cones               # Category-specific ablation (default: false)
+--use-caa                         # Contrastive Activation Addition (default: false)
+--use-circuit-ablation            # Attention head targeting (default: false, no GQA)
+--use-warm-start-params           # Model family warm-start (default: true)
+```
+
+### Configuration File
+
+Create `config.toml` for complex setups:
 
 ```toml
-# Model settings
-model = "Qwen/Qwen3-4B-Instruct-2507"
-dtype = "auto"           # float16, bfloat16, or auto
-batch_size = 0           # 0 = auto-detect
-compile = false          # Enable torch.compile() for faster inference
+model = "Qwen/Qwen2.5-32B-Instruct"
+n_trials = 200
+batch_size = 8
+cache_weights = false  # Required for 32B+ on multi-GPU
 
-# Optimization settings
-n_trials = 100           # Number of Optuna trials
-storage = "sqlite:///heretic_study.db"  # Resume support
-study_name = "heretic_study"
+# Resume support
+storage = "sqlite:///heretic_study.db"
+study_name = "qwen32b-abliteration"
 
-# Evaluation settings
-refusal_check_tokens = 30  # Fewer tokens = faster evaluation
+# Auto-save
+auto_select = true
+auto_select_path = "./models/Qwen2.5-32B-Instruct-heretic"
 
-# Advanced features (all enabled by default)
-use_neural_refusal_detection = true   # Zero-shot NLI detection
-ensemble_probe_pca = true             # Probe + PCA ensemble
-use_activation_calibration = true     # Adaptive weight scaling
-use_warm_start_params = true          # Model family warm-start
-enable_validation = true              # Validation framework
+# Dataset configuration
+[bad_prompts]
+dataset = "p-e-w/refusal_direction"
+split = "train"
+column = "rejected"
 
-# Optional advanced features (disabled by default)
-use_concept_cones = false             # Category clustering
-use_caa = false                       # Compliance direction addition
-use_circuit_ablation = false          # Attention head targeting
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"  # Required for C4
+split = "train[:200]"
+column = "text"
 ```
 
-### Model Compatibility Notes
+See [configs/](configs/) for example configurations.
 
-| Model Family | Neural Detection | Supervised Probing | Circuit Ablation | Warm-Start |
-|--------------|------------------|-------------------|------------------|------------|
-| Llama 3.x | Yes | Yes | No (GQA) | Yes |
-| Qwen 2.5 | Yes | Yes | No (GQA) | Yes |
-| Mistral | Yes | Yes | Yes | Yes |
-| Gemma | Yes | Yes | Yes | Yes |
-| Phi | Yes | Yes | Yes | Yes |
+## Model Size Guidelines
 
-## How It Works
+| Size | GPU VRAM | Disk Space | cache_weights | C4 config |
+|------|----------|------------|---------------|-----------|
+| 7B   | 24GB     | 100GB      | true          | not needed |
+| 13B  | 24GB     | 150GB      | false         | not needed |
+| 32B  | 80GB     | 200GB      | false         | required (`en`) |
+| 70B  | 80GB+    | 300GB      | false         | required (`en`) |
 
-1. **Load model** - Loads the target model with automatic dtype selection and multi-GPU distribution
-2. **Extract behavioral directions** - Computes per-layer activation patterns from contrastive prompt pairs
-3. **Apply enhancements** - Neural detection, supervised probing, activation calibration, warm-start
-4. **Optimize modification** - Uses Optuna to find optimal parameters that modify behavior while preserving capabilities (measured by KL divergence)
-5. **Validate results** - Measure refusal reduction and capability preservation
-6. **Select result** - Presents Pareto-optimal trials for user selection
-7. **Export** - Save locally or upload to HuggingFace
+**Note:** v1.1.0+ streams C4 dataset on-demand (no disk overhead). Network required during loading.
 
-### The Core Technique
+## Advanced Usage
 
-Heretic uses **activation direction analysis** to find and remove behavioral tendencies:
+### Custom Behavioral Directions
 
-```
-1. FIND direction    → Compare activations on contrastive prompts (PCA + supervised probing)
-2. CALIBRATE         → Scale weights based on activation strength
-3. PROJECT it out    → Orthogonalize weight matrices against that direction
-4. OPTIMIZE          → Find intensity that modifies behavior without destroying capability
-5. VALIDATE          → Measure improvement with neural refusal detection
-```
-
-This technique is general - it works for any behavior encoded as a direction in activation space.
-
-### Advanced Features
-
-**Neural Refusal Detection:** Uses zero-shot NLI to catch soft refusals, evasive responses, and novel refusal patterns that string matching misses.
-
-**Ensemble Direction Extraction:** Combines supervised linear probes with contrastive PCA for more accurate refusal direction identification.
-
-**Activation Calibration:** Measures how strongly prompts activate the refusal direction and scales ablation weights accordingly - stronger activations get stronger ablation.
-
-**Warm-Start Transfer:** Uses pre-computed hyperparameter profiles for model families (Llama, Qwen, Mistral, Gemma, Phi) to initialize Optuna, achieving ~2x faster convergence.
-
-## Web Search Feature
-
-The chat interface includes automatic web search capabilities to augment responses with current information.
-
-### How It Works
-
-The WebSearcher automatically detects when your question needs current information and searches the web. Search results are injected into the conversation context before the model generates its response.
-
-### Automatic vs Explicit Search
-
-**Automatic Search** triggers when your message contains:
-- Time-sensitive words: "today", "current", "latest", "recent"
-- Information requests: "news", "update", "trending"
-- Questions about dynamic data: "price", "weather", "score"
-- Direct requests: "search for", "look up", "find out"
-
-**Explicit Search** using the `/search` command:
-```
-/search latest AI news
-/search python 3.13 release date
-/search weather in Tokyo
-```
-
-### Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Backend | DuckDuckGo | No API key required |
-| Region | Worldwide (`wt-wt`) | No regional bias |
-| Max Results | 5 | Results per search |
-| Enable/Disable | Checkbox in UI | Toggle in Advanced Settings |
-
-### Failure Handling
-
-Web search is designed to fail gracefully:
-
-- **Search fails:** Model answers without web context, shows warning
-- **No results:** Model acknowledges search was attempted but found nothing
-- **Network issues:** Treated as search failure, continues without results
-
-The chat will never crash due to search issues - it simply continues without web augmentation.
-
-### Disabling Web Search
-
-In the chat interface, expand "Advanced Settings" and uncheck "Enable Web Search" to disable automatic searches. You can still use `/search` for explicit searches when needed.
-
----
-
-## Chat Interface
-
-Heretic includes a Gradio-based chat interface for testing abliterated models.
-
-### Quick Start
+Heretic can extract any behavioral direction, not just refusals:
 
 ```bash
-# Install dependencies
-pip install gradio transformers torch accelerate
+# Verbosity modification (tested)
+cp experiments/verbosity/config.verbosity.toml config.toml
+heretic --model meta-llama/Llama-3.1-8B-Instruct
 
-# Run the chat app
-python chat_app.py
+# Hedging language removal (framework ready)
+cp experiments/hedging/config.hedging.toml config.toml
+heretic --model meta-llama/Llama-3.1-8B-Instruct
 ```
 
-Opens web UI at `http://localhost:7860` with model selection, streaming responses, GPU memory monitoring, and chat history persistence.
+See [experiments/](experiments/) for experimental behavioral directions.
 
-### Features
+### Validation Framework
 
-- Type-safe implementation with comprehensive type hints
-- Custom exception handling (CUDA OOM, model validation, tokenization errors)
-- Structured logging with configurable log levels
-- Cross-model compatibility (Llama, Qwen, and other architectures)
-- Model file validation before loading
+Enable validation to measure abliteration effectiveness:
 
-### Using Your Models
-
-Place abliterated models in the `models/` directory:
-
-```
-models/
-  llama-3.2-3b-heretic/
-    config.json
-    model.safetensors
-    tokenizer.json
-    ...
-  qwen2.5-3b-heretic/
-    ...
+```bash
+heretic <model> --enable-validation --run-mmlu-validation
 ```
 
-Or download from HuggingFace:
+Measures:
+- Refusal rate reduction
+- KL divergence (capability preservation)
+- MMLU accuracy (optional, comprehensive capability test)
 
-```python
-from huggingface_hub import snapshot_download
+### Resume Support
 
-snapshot_download(
-    repo_id="rawcell/Llama-3.2-3B-Instruct-heretic",
-    local_dir="models/llama-3.2-3b-heretic"
-)
+```bash
+# First run
+heretic <model> --storage sqlite:///study.db --study-name experiment1
+
+# Resume after interruption
+heretic <model> --storage sqlite:///study.db --study-name experiment1
 ```
 
-### Programmatic Usage
+Optuna automatically resumes from last completed trial.
 
-```python
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+## Architecture
 
-# Load from local path
-model = AutoModelForCausalLM.from_pretrained(
-    "models/llama-3.2-3b-heretic",
-    dtype=torch.float16,
-    device_map="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained("models/llama-3.2-3b-heretic")
+**Core Components:**
+- `Model` - HuggingFace model wrapper with abliteration operations
+- `Evaluator` - Multi-objective scoring (KL divergence + refusal counting)
+- `Settings` - Pydantic configuration with CLI/env/file support
+- `heretic-vast` - Cloud GPU management CLI for Vast.ai
 
-# Generate response
-messages = [{"role": "user", "content": "Hello!"}]
-prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-outputs = model.generate(**inputs, max_new_tokens=512)
-print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+**Abliteration Pipeline:**
+1. Load model and tokenizer with dtype fallback chain
+2. Load contrastive prompt datasets (good/bad examples)
+3. Auto-detect optimal batch size if needed
+4. Compute per-layer behavioral directions from residual activations
+5. Run Optuna optimization loop with TPE sampler
+6. Present Pareto-optimal trials for selection
+7. Save/upload/chat with modified model
+
+## Error Handling
+
+Heretic includes comprehensive error handling with:
+- Custom exception hierarchy (22 exception types)
+- Specific error messages with 2-3 actionable solutions
+- Input validation and security hardening
+- Enhanced logging with file rotation
+- Network retry logic with exponential backoff
+
+All errors provide clear guidance for resolution.
+
+## Troubleshooting
+
+**Common Issues:**
+
+**GPU Out of Memory:**
+```bash
+# Use smaller batch size
+heretic <model> --batch-size 4 --max-batch-size 16
+
+# Disable weight caching for large models
+heretic <model> --cache-weights false
+
+# Use smaller model or quantization
 ```
 
-## Citation
+**C4 Dataset Errors:**
+```bash
+# C4 requires config parameter
+heretic <model> --unhelpfulness-prompts.config en
 
-```bibtex
-@misc{arditi2024refusallanguagemodelsmediated,
-      title={Refusal in Language Models Is Mediated by a Single Direction},
-      author={Andy Arditi and Oscar Obeso and Aaquib Syed and Daniel Paleka and Nina Rimsky and Wes Gurnee and Neel Nanda},
-      year={2024},
-      eprint={2406.11717},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2406.11717},
-}
+# C4 requires sample count in split
+# Use: train[:200] not just train
 ```
 
-## Experiments
+**Model Loading Failures:**
+```bash
+# Gated models (Llama, etc.) require authentication
+huggingface-cli login
 
-Heretic includes an experiments framework for testing new behavioral directions:
-
-```
-experiments/
-└── verbosity/          # Test extraction of "verbosity direction"
-    ├── README.md       # Experiment documentation
-    ├── concise_prompts.json
-    ├── verbose_prompts.json
-    ├── config.verbosity.toml
-    └── eval_verbosity.py
+# Or set token
+export HF_TOKEN='your-token'
 ```
 
-See [ROADMAP.md](ROADMAP.md) for research directions and future plans.
+See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
+
+## Performance Benchmarks
+
+**H200 GPU (Qwen2.5-Coder-32B):**
+- Model download: ~5 min (one-time, cached)
+- PCA extraction: ~5 min (GPU-accelerated, was 4-6 hrs on CPU)
+- Single trial: ~3 min
+- 200 trials: ~10 hrs (total cost: ~$22)
+
+**4x RTX 4090 (Qwen2.5-Coder-32B):**
+- 200 trials: ~30-35 hrs (total cost: ~$47-55)
+- Requires `device_map="balanced"` and `cache_weights=false`
+
+## Documentation
+
+**User Guides:**
+- [README.md](README.md) - This file
+- [WORKFLOW.md](WORKFLOW.md) - Cloud GPU comprehensive guide
+- [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Command cheatsheet
+- [LESSONS_LEARNED.md](LESSONS_LEARNED.md) - Troubleshooting
+
+**Development:**
+- [CLAUDE.md](CLAUDE.md) - AI assistant guide
+- [ROADMAP.md](ROADMAP.md) - Future research directions
+- [docs/](docs/) - Planning and implementation tracking
+- [claudedocs/](claudedocs/) - Technical analyses
+
+**Examples & Configs:**
+- [examples/](examples/) - Example applications (chat interface)
+- [configs/](configs/) - Example configuration files
+- [scripts/](scripts/) - Utility scripts
+
+## Development
+
+```bash
+# Install development dependencies
+uv sync --all-extras --dev
+
+# Format code
+uv run ruff format .
+
+# Lint
+uv run ruff check --extend-select I .
+
+# Run tests
+uv run pytest
+
+# Build package
+uv build
+```
+
+## Contributing
+
+Contributions welcome. This fork focuses on:
+- Error handling improvements
+- Performance optimizations
+- Cloud GPU workflow automation
+- Advanced abliteration techniques (Phase 1-7)
+
+See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned improvements.
+
+## Resources
+
+**Research:**
+- [Paper: Refusal in Language Models Is Mediated by a Single Direction](https://arxiv.org/abs/2406.11717)
+- [Abliterated Models Collection](https://huggingface.co/collections/p-e-w/the-bestiary)
+
+**Repositories:**
+- [Original Project](https://github.com/p-e-w/heretic) by Philipp Emanuel Weidmann
+- [This Fork](https://github.com/quanticsoul4772/abliteration-workflow) - Extended features
 
 ## License
 
 AGPL-3.0-or-later
 
-## Documentation
+Copyright (C) 2025 Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-**User Guides:**
-- [README.md](README.md) - This file (quick start and overview)
-- [WORKFLOW.md](WORKFLOW.md) - Comprehensive cloud GPU guide
-- [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Command cheatsheet
-- [LESSONS_LEARNED.md](LESSONS_LEARNED.md) - Troubleshooting and gotchas
-
-**Development:**
-- [CLAUDE.md](CLAUDE.md) - AI assistant guide (Claude Code instructions)
-- [ROADMAP.md](ROADMAP.md) - Vision and future research directions
-- [docs/](docs/) - Planning documents and implementation tracking
-- [claudedocs/](claudedocs/) - Technical analyses and reports
-
-**Examples:**
-- [examples/](examples/) - Example applications (chat interface, etc.)
-- [configs/](configs/) - Example configuration files
-- [scripts/](scripts/) - Utility scripts (use `heretic-vast` CLI instead)
-
-## Resources
-
-- [Paper: Refusal in Language Models Is Mediated by a Single Direction](https://arxiv.org/abs/2406.11717)
-- [Abliterated Models Collection](https://huggingface.co/collections/p-e-w/the-bestiary)
-- [GitHub Repository](https://github.com/p-e-w/heretic)
-- [Fork (abliteration-workflow)](https://github.com/quanticsoul4772/abliteration-workflow)
+See [LICENSE](LICENSE) for full license text.

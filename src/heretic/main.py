@@ -24,6 +24,7 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData, get_token
+from huggingface_hub.errors import HfHubHTTPError
 from optuna import Trial
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
@@ -36,12 +37,17 @@ from .config import Settings
 from .evaluator import Evaluator
 from .exceptions import (
     AbliterationError,
+    BatchSizeError,
+    CAAExtractionError,
+    ConceptConeError,
     ConfigurationError,
     DatasetError,
     ModelError,
     ModelInferenceError,
     NetworkTimeoutError,
+    SupervisedProbeError,
     ValidationFileError,
+    WarmStartError,
 )
 from .model import (
     AbliterationParameters,
@@ -57,7 +63,6 @@ from .transfer import (
     get_warm_start_variations,
 )
 from .utils import (
-    BatchSizeError,
     empty_cache,
     format_duration,
     get_gpu_memory_info,
@@ -381,7 +386,7 @@ def run():
                 f"  * Supervised probe succeeded (mean accuracy: {supervised_result.get_mean_accuracy():.2f})"
             )
         else:
-            raise RuntimeError(
+            raise SupervisedProbeError(
                 f"Supervised probing failed (accuracy below {settings.min_probe_accuracy} or class imbalance). "
                 "This can happen if the model doesn't clearly distinguish refusal vs compliance patterns. "
                 "Try lowering min_probe_accuracy, or disable use_supervised_probing to use PCA instead."
@@ -419,7 +424,7 @@ def run():
             concept_cone_result = cc_result
             print(f"  * Extracted {len(concept_cone_result.cones)} concept cones")
         else:
-            raise RuntimeError(
+            raise ConceptConeError(
                 f"Concept cone extraction failed (silhouette score below {settings.min_silhouette_score}). "
                 "This indicates poor clustering quality - harmful prompts may not have distinct categories. "
                 "Try increasing min_cone_size or decreasing n_concept_cones, or disable use_concept_cones."
@@ -442,7 +447,7 @@ def run():
             )
             print("  * Compliance direction extracted")
         else:
-            raise RuntimeError(
+            raise CAAExtractionError(
                 "CAA extraction failed due to insufficient samples. Need at least 10 refusals "
                 "and 10 compliant responses from bad_prompts. Either your model already complies "
                 "with most harmful prompts (nothing to ablate), or it refuses everything "
@@ -458,7 +463,7 @@ def run():
         # Check for GQA models upfront
         is_gqa, n_heads, n_kv_heads = model.is_gqa_model()
         if is_gqa:
-            raise RuntimeError(
+            raise AbliterationError(
                 f"Circuit ablation is not supported for GQA (Grouped Query Attention) models. "
                 f"Detected: n_heads={n_heads}, n_kv_heads={n_kv_heads}. "
                 f"GQA models include Llama 3.x, Qwen2.5, and others. "
@@ -474,7 +479,7 @@ def run():
         if refusal_circuits:
             print(f"  * Discovered {len(refusal_circuits)} refusal circuits")
         else:
-            raise RuntimeError(
+            raise AbliterationError(
                 f"No refusal circuits found with importance threshold {settings.circuit_importance_threshold}. "
                 f"Try lowering circuit_importance_threshold or disable use_circuit_ablation."
             )
@@ -523,14 +528,14 @@ def run():
                 ].max_weight,
             )
             if circuit_result.gqa_detected:
-                raise RuntimeError(
+                raise AbliterationError(
                     "Circuit ablation failed: GQA model detected at runtime. "
                     "This should have been caught earlier. Disable use_circuit_ablation."
                 )
             elif circuit_result.circuits_ablated > 0:
                 print(f"  * Ablated {circuit_result.circuits_ablated} circuits")
             else:
-                raise RuntimeError(
+                raise AbliterationError(
                     f"Circuit ablation failed: 0 circuits ablated, {circuit_result.circuits_skipped} skipped. "
                     "Check circuit_importance_threshold setting."
                 )
@@ -698,7 +703,12 @@ def run():
             nonlocal oom_count
             oom_count += 1
 
-            # Clear GPU memory
+            # Clear GPU memory aggressively
+            empty_cache()
+            try:
+                model.reload_model()  # Reload to reset model state
+            except Exception:
+                pass  # Best-effort reload, continue with empty_cache
             empty_cache()
 
             mem_info = get_gpu_memory_info()
@@ -863,7 +873,7 @@ def run():
                         print(f"    * Variation {i}: max_weight={weight_str}")
         else:
             detected = detect_model_family(settings.model)
-            raise RuntimeError(
+            raise WarmStartError(
                 f"Warm-start enabled but no profile found for model: {settings.model}. "
                 f"Detected family: {detected or 'unknown'}. "
                 f"Set --model-family to one of: llama, qwen, mistral, gemma, phi. "

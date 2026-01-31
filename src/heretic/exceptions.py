@@ -172,6 +172,17 @@ class PhaseConfigError(ConfigurationError):
     pass
 
 
+class WarmStartError(ConfigurationError):
+    """Exception raised when warm-start parameter loading fails.
+
+    Common causes:
+    - No profile found for model family
+    - Unknown model family
+    - Invalid model name format
+    """
+    pass
+
+
 # ============================================================================
 # Abliteration Errors (2)
 # ============================================================================
@@ -197,6 +208,74 @@ class CircuitAblationError(AbliterationError):
 
 
 # ============================================================================
+# Resource Errors (2)
+# ============================================================================
+
+class ResourceError(HereticError):
+    """Base exception for resource-related errors.
+
+    Covers errors related to GPU memory, batch sizing, and system resources.
+    """
+    pass
+
+
+class BatchSizeError(ResourceError):
+    """Exception raised when batch size causes resource exhaustion.
+
+    Common causes:
+    - Batch size too large for available GPU memory
+    - Repeated OOM errors during optimization
+    - Model too large for available VRAM
+    """
+    pass
+
+
+# ============================================================================
+# Extraction Errors (2)
+# ============================================================================
+
+class ExtractionError(AbliterationError):
+    """Base exception for direction extraction errors.
+
+    Covers errors during refusal direction extraction methods.
+    """
+    pass
+
+
+class SupervisedProbeError(ExtractionError):
+    """Exception raised when supervised probing fails.
+
+    Common causes:
+    - Class imbalance (< 10 samples per class)
+    - Probe accuracy below threshold
+    - Model doesn't distinguish refusal vs compliance patterns
+    """
+    pass
+
+
+class ConceptConeError(ExtractionError):
+    """Exception raised when concept cone extraction fails.
+
+    Common causes:
+    - Silhouette score below threshold (poor clustering quality)
+    - Harmful prompts don't have distinct categories
+    - Insufficient samples for clustering
+    """
+    pass
+
+
+class CAAExtractionError(ExtractionError):
+    """Exception raised when CAA extraction fails.
+
+    Common causes:
+    - Insufficient refusal samples (< 10)
+    - Insufficient compliance samples (< 10)
+    - Model already complies or refuses everything
+    """
+    pass
+
+
+# ============================================================================
 # Exception Hierarchy Reference
 # ============================================================================
 """
@@ -213,9 +292,16 @@ HereticError (base)
 ├── CloudError
 │   └── SSHError
 ├── ConfigurationError
-│   └── PhaseConfigError
+│   ├── PhaseConfigError
+│   └── WarmStartError
+├── ResourceError
+│   └── BatchSizeError
 └── AbliterationError
-    └── CircuitAblationError
+    ├── CircuitAblationError
+    └── ExtractionError
+        ├── SupervisedProbeError
+        ├── ConceptConeError
+        └── CAAExtractionError
 
-Total: 15 custom exceptions (1 base + 14 specific)
+Total: 22 custom exceptions (1 base + 21 specific)
 """

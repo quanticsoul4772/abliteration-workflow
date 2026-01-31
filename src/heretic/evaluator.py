@@ -229,12 +229,31 @@ class Evaluator:
         # Phase 1 Next-Level: Initialize neural refusal detector if enabled
         self.neural_detector: NeuralRefusalDetector | None = None
         if settings.use_neural_refusal_detection:
-            self.neural_detector = NeuralRefusalDetector(
-                model_name=settings.neural_detection_model,
-                batch_size=settings.neural_detection_batch_size,
-                threshold=settings.neural_detection_threshold,
-            )
-        self._use_neural_for_optuna = settings.neural_detection_for_optuna
+            try:
+                self.neural_detector = NeuralRefusalDetector(
+                    model_name=settings.neural_detection_model,
+                    batch_size=settings.neural_detection_batch_size,
+                    threshold=settings.neural_detection_threshold,
+                )
+            except torch.cuda.OutOfMemoryError:
+                print(
+                    "[yellow]Warning: Insufficient GPU memory for neural refusal detector. "
+                    "Falling back to string matching only.[/]"
+                )
+                self.neural_detector = None
+            except ImportError as e:
+                print(
+                    f"[yellow]Warning: Neural refusal detector unavailable ({e}). "
+                    "Falling back to string matching only.[/]"
+                )
+                self.neural_detector = None
+            except Exception as e:
+                print(
+                    f"[yellow]Warning: Failed to initialize neural refusal detector: {e}. "
+                    "Falling back to string matching only.[/]"
+                )
+                self.neural_detector = None
+        self._use_neural_for_optuna = settings.neural_detection_for_optuna and self.neural_detector is not None
 
         print()
         print(

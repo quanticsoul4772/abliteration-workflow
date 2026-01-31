@@ -24,7 +24,12 @@ from transformers import (
 from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
-from .exceptions import ModelInferenceError, ModelLoadError
+from .exceptions import (
+    ConfigurationError,
+    ModelInferenceError,
+    ModelLoadError,
+    SupervisedProbeError,
+)
 from .logging import get_logger
 from .utils import batchify, empty_cache, print
 
@@ -597,7 +602,10 @@ class PCAExtractionResult:
             log_eigenvalues = torch.log1p(positive_eigenvalues)
             weights = log_eigenvalues / log_eigenvalues.sum()
         else:
-            raise ValueError(f"Unknown eigenvalue weight method: {method}")
+            raise ConfigurationError(
+                f"Unknown eigenvalue weight method: '{method}'. "
+                f"Valid options: 'softmax', 'proportional', 'log_proportional'."
+            )
 
         # Scale so that the first (largest) weight is 1.0
         # This maintains compatibility with existing weight semantics
@@ -1923,7 +1931,7 @@ class Model:
 
         # Check if supervised probing succeeded or fell back to PCA
         if isinstance(supervised_result, PCAExtractionResult):
-            raise RuntimeError(
+            raise SupervisedProbeError(
                 "Ensemble probe+PCA extraction failed: supervised probing returned PCA fallback. "
                 "This happens when there is class imbalance (< 10 samples per class) or "
                 f"probe accuracy is below {min_probe_accuracy}. Check that your bad_prompts "
