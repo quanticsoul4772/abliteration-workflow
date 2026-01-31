@@ -7,7 +7,7 @@
 
 **Neural behavior engineering framework for surgical modification of language model behaviors.**
 
-Named after Giordano Bruno (1548-1600), who proposed an infinite universe with infinite worlds against imposed cosmic constraints. Like Bruno revealed infinite cosmic possibilities, this framework reveals infinite behavioral possibilities in neural networks.
+Named after Giordano Bruno (1548-1600), who proposed an infinite universe with infinite worlds against imposed cosmic constraints.
 
 ## What It Does
 
