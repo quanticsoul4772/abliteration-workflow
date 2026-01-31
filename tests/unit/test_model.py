@@ -194,13 +194,13 @@ class TestModelReload:
 
         mock_model.get_layer_matrices.return_value = {
             "attn.o_proj": [current_tensor],
-            "mlp.down_proj": [current_tensor.clone()]
+            "mlp.down_proj": [current_tensor.clone()],
         }
 
         mock_model.layer_weights_cache = {
             0: {
                 "attn.o_proj": [cached_tensor],
-                "mlp.down_proj": [cached_tensor.clone()]
+                "mlp.down_proj": [cached_tensor.clone()],
             }
         }
 

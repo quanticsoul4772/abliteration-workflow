@@ -204,18 +204,24 @@ class TestExceptionCount:
         # Count all exception classes
         exceptions = [
             HereticError,  # 1 base
-            ModelError, ModelLoadError, ModelInferenceError,  # 3 model
-            DatasetError, DatasetConfigError,  # 2 dataset
-            NetworkError, NetworkTimeoutError,  # 2 network
-            FileOperationError, ValidationFileError,  # 2 file
-            CloudError, SSHError,  # 2 cloud
-            ConfigurationError, PhaseConfigError,  # 2 config
-            AbliterationError, CircuitAblationError,  # 2 abliteration
+            ModelError,
+            ModelLoadError,
+            ModelInferenceError,  # 3 model
+            DatasetError,
+            DatasetConfigError,  # 2 dataset
+            NetworkError,
+            NetworkTimeoutError,  # 2 network
+            FileOperationError,
+            ValidationFileError,  # 2 file
+            CloudError,
+            SSHError,  # 2 cloud
+            ConfigurationError,
+            PhaseConfigError,  # 2 config
+            AbliterationError,
+            CircuitAblationError,  # 2 abliteration
         ]
 
-        assert len(exceptions) == 16, (
-            f"Expected 16 exceptions, got {len(exceptions)}"
-        )
+        assert len(exceptions) == 16, f"Expected 16 exceptions, got {len(exceptions)}"
 
     def test_all_exceptions_importable(self):
         """Test that all 15 exceptions are importable."""
