@@ -405,15 +405,15 @@ class TestMMLUEvaluator:
 
     def test_load_category_parses_choices_list(self):
         """Test that _load_category correctly parses the 'choices' list format.
-        
+
         The cais/mmlu dataset uses a 'choices' list, NOT separate A/B/C/D columns.
         This was a bug fixed after discovering the dataset structure:
         {'question': '...', 'choices': ['opt1', 'opt2', 'opt3', 'opt4'], 'answer': 1}
         """
         from bruno.validation import MMLUEvaluator
-        
+
         evaluator = MMLUEvaluator(model=MagicMock())
-        
+
         # Mock the dataset loading with the actual cais/mmlu format
         mock_dataset = [
             {
@@ -424,16 +424,16 @@ class TestMMLUEvaluator:
             },
             {
                 "question": "What is the order of the group?",
-                "subject": "abstract_algebra", 
+                "subject": "abstract_algebra",
                 "choices": ["1", "2", "4", "8"],
                 "answer": 2,
             },
         ]
-        
+
         with patch("heretic.validation.load_dataset", return_value=mock_dataset):
             with patch("heretic.validation.print"):
                 examples = evaluator._load_category("abstract_algebra")
-        
+
         assert len(examples) == 2
         # Verify choices are parsed correctly from the 'choices' list
         assert examples[0]["choices"] == ["0", "4", "2", "6"]
@@ -474,7 +474,7 @@ class TestMMLUEvaluator:
 
     def test_evaluate_category_with_mocked_data(self):
         """Test evaluating a category with mocked dataset.
-        
+
         Uses the standardized format that _load_category produces:
         {'question': '...', 'choices': [...], 'answer': 'A'/'B'/'C'/'D'}
         """
