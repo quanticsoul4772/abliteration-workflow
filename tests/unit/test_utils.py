@@ -139,6 +139,7 @@ class TestLoadPrompts:
         import pytest
 
         from heretic.config import DatasetSpecification
+        from heretic.exceptions import DatasetConfigError
         from heretic.utils import load_prompts
 
         spec = DatasetSpecification(
@@ -152,7 +153,7 @@ class TestLoadPrompts:
             mock_path.return_value.exists.return_value = False
 
             with pytest.raises(
-                ValueError, match="C4 dataset requires config parameter"
+                DatasetConfigError, match="C4 dataset requires config parameter"
             ):
                 load_prompts(spec)
 
@@ -161,6 +162,7 @@ class TestLoadPrompts:
         import pytest
 
         from heretic.config import DatasetSpecification
+        from heretic.exceptions import DatasetConfigError
         from heretic.utils import load_prompts
 
         spec = DatasetSpecification(
@@ -174,7 +176,7 @@ class TestLoadPrompts:
             mock_path.return_value.exists.return_value = False
 
             with pytest.raises(
-                ValueError, match="C4 dataset requires explicit sample count"
+                DatasetConfigError, match="C4 dataset requires explicit sample count"
             ):
                 load_prompts(spec)
 
@@ -227,7 +229,7 @@ class TestLoadPrompts:
             with patch("heretic.utils.Path") as mock_path:
                 mock_path.return_value.exists.return_value = False
 
-                with pytest.raises(ValueError, match="C4 stream exhausted early"):
+                with pytest.raises(ValueError, match="Stream exhausted early"):
                     load_prompts(spec)
 
     def test_load_prompts_c4_stream_iteration_error(self):
