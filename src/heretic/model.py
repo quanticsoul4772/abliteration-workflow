@@ -548,8 +548,8 @@ class RefusalProbe:
         )
 
         # Handle class imbalance with balanced class weights
+        # Note: L2 regularization is the default; we use C=1.0 to control strength
         clf = LogisticRegression(
-            penalty="l2",
             C=1.0,
             max_iter=1000,
             class_weight="balanced",  # Handle imbalanced data
@@ -2026,8 +2026,8 @@ class Model:
             )
             y = np.concatenate([np.ones(len(refusal_data)), np.zeros(len(comply_data))])
 
+            # Note: L2 regularization is the default; we use C=1.0 to control strength
             clf = LogisticRegression(
-                penalty="l2",
                 C=1.0,
                 max_iter=1000,
                 class_weight="balanced",
