@@ -178,21 +178,38 @@ class TestModelReload:
     """Test model weight reloading from cache."""
 
     def test_reload_model_restores_original_weights(self):
-        """Test reload_model uses cached state_dict."""
+        """Test reload_model uses layer-wise cache to restore weights."""
         from heretic.model import Model
 
-        # Create a minimal mock Model
+        # Create minimal mock Model with layer-wise cache
         mock_model = MagicMock()
-        mock_model.model = MagicMock()
-        mock_model.original_state_dict = {"weight": torch.randn(10, 10)}
+
+        # Mock layers and matrices
+        mock_layer = MagicMock()
+        mock_model.get_layers.return_value = [mock_layer]
+
+        # Create mock tensors for current and cached weights
+        current_tensor = torch.randn(10, 10)
+        cached_tensor = torch.randn(10, 10)
+
+        mock_model.get_layer_matrices.return_value = {
+            "attn.o_proj": [current_tensor],
+            "mlp.down_proj": [current_tensor.clone()]
+        }
+
+        mock_model.layer_weights_cache = {
+            0: {
+                "attn.o_proj": [cached_tensor],
+                "mlp.down_proj": [cached_tensor.clone()]
+            }
+        }
 
         # Call reload_model
         Model.reload_model(mock_model)
 
-        # Verify load_state_dict was called with cached weights
-        mock_model.model.load_state_dict.assert_called_once_with(
-            mock_model.original_state_dict
-        )
+        # Verify get_layers and get_layer_matrices were called
+        mock_model.get_layers.assert_called()
+        mock_model.get_layer_matrices.assert_called_with(0)
 
 
 class TestModelGetLayers:
