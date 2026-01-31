@@ -805,7 +805,7 @@ def create_pod(ctx, tier: str, num_gpus: int):
 
     if code != 0 or not stdout.strip():
         console.print("[red]Error: No suitable GPU offers found[/]")
-        console.print(f"Try: heretic-vast gpus {tier}")
+        console.print(f"Try: bruno-vast gpus {tier}")
         return
 
     try:
@@ -1659,7 +1659,7 @@ def download_model(
             console.print("[red]Could not get SSH info for download[/]")
             console.print("\n[yellow]Troubleshooting:[/]")
             console.print("  1. Check VAST_API_KEY is set in .env file")
-            console.print("  2. Run: heretic-vast list (to verify API works)")
+            console.print("  2. Run: bruno-vast list (to verify API works)")
             console.print(
                 "  3. Try the download command again after verifying connection"
             )
