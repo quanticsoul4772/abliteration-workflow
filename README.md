@@ -28,7 +28,7 @@ The technique works for any behavior with distinguishable activation patterns:
 - Direct HuggingFace Hub upload of modified models
 - Interactive chat interface for testing modifications
 
-**Advanced Techniques (Phase 1-7):**
+**Advanced Techniques:**
 - Neural refusal detection using zero-shot NLI (catches soft refusals)
 - Supervised probing + ensemble extraction for robust direction vectors
 - Activation-based calibration for adaptive weight scaling
@@ -135,7 +135,7 @@ docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/heretic \
 --cache-weights BOOL       # In-memory caching (default: true, set false for 32B+)
 ```
 
-**Phase 1-7 Features:**
+**Advanced Features:**
 ```bash
 --use-neural-refusal-detection    # Zero-shot NLI detection (default: true)
 --ensemble-probe-pca              # Supervised + PCA ensemble (default: true)
@@ -352,7 +352,7 @@ Contributions welcome. This fork focuses on:
 - Error handling improvements
 - Performance optimizations
 - Cloud GPU workflow automation
-- Advanced abliteration techniques (Phase 1-7)
+- Advanced abliteration techniques
 
 See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned improvements.
 
