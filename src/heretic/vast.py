@@ -27,6 +27,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from .exceptions import CloudError, ConfigurationError, SSHError
+
 # Lazy imports for fabric to avoid import errors if not installed
 try:
     from fabric import Connection
@@ -384,17 +386,260 @@ def get_connection(instance_id: str, config: VastConfig) -> Optional["Connection
     )
 
 
-def run_ssh_command(conn: "Connection", command: str, hide: bool = True) -> str:
-    """Run a command via SSH and return stdout.
+def run_ssh_command(
+    conn: "Connection",
+    command: str,
+    hide: bool = True,
+    timeout: int = 60,
+    critical: bool = False,
+) -> str:
+    """Run a command via SSH with timeout and return stdout.
 
-    Returns empty string on connection errors (network issues, timeouts, etc.).
+    Args:
+        conn: Fabric SSH connection
+        command: Command to execute
+        hide: Hide command output (default: True)
+        timeout: Command timeout in seconds (default: 60)
+            Use 60s for quick commands, 300s for long operations
+        critical: If True, raise SSHError on failure. If False, return empty string (default)
+
+    Returns:
+        Command stdout on success, empty string on non-critical failure
+
+    Raises:
+        SSHError: If critical=True and command fails or times out
+
+    Examples:
+        # Quick command (60s timeout, non-critical)
+        output = run_ssh_command(conn, "ls /workspace")
+
+        # Long operation (300s timeout, critical)
+        run_ssh_command(conn, "apt-get update", timeout=300, critical=True)
+
+        # Critical command that must succeed
+        run_ssh_command(conn, "mkdir -p /workspace", critical=True)
     """
     try:
-        result = conn.run(command, hide=hide, warn=True)
+        # Wrap command with GNU timeout for time limiting
+        # timeout command exits with 124 if command times out
+        timeout_command = f"timeout {timeout} bash -c {repr(command)}"
+        result = conn.run(timeout_command, hide=hide, warn=True)
+
+        # Check if command timed out (exit code 124)
+        if result.return_code == 124:
+            if critical:
+                raise SSHError(
+                    f"SSH command timed out after {timeout}s. "
+                    f"Solutions: 1) Increase timeout for long operations "
+                    f"2) Check if command is hanging 3) Verify network stability"
+                )
+            return ""
+
+        # Return stdout if successful, empty string if failed
         return result.stdout if result and result.ok else ""
-    except (OSError, TimeoutError, EOFError):
-        # Connection errors: socket issues, timeouts, connection closed
+
+    except TimeoutError as e:
+        # Network/connection timeout (different from command timeout)
+        if critical:
+            raise SSHError(
+                f"SSH connection timeout after {timeout}s. "
+                f"Solutions: 1) Check network connection 2) Increase timeout "
+                f"3) Verify instance is responsive"
+            ) from e
         return ""
+    except (OSError, EOFError) as e:
+        # Connection errors: socket issues, connection closed
+        if critical:
+            raise SSHError(
+                f"SSH connection error: {e}. "
+                f"Solutions: 1) Check instance status 2) Verify network connection "
+                f"3) Restart SSH connection"
+            ) from e
+        return ""
+    except KeyboardInterrupt:
+        # CRITICAL: Always let user interrupt
+        raise
+
+
+# Input Validation Functions
+def validate_instance_id(instance_id: int) -> int:
+    """Validate Vast.ai instance ID.
+
+    Args:
+        instance_id: Instance ID to validate
+
+    Returns:
+        Validated instance ID
+
+    Raises:
+        ConfigurationError: If instance ID is invalid
+    """
+    if not isinstance(instance_id, int):
+        raise ConfigurationError(
+            f"Instance ID must be an integer, got: {type(instance_id).__name__}"
+        )
+    if instance_id <= 0:
+        raise ConfigurationError(
+            f"Instance ID must be positive, got: {instance_id}"
+        )
+    if instance_id > 999999999:  # Reasonable upper bound
+        raise ConfigurationError(
+            f"Instance ID too large (max 999999999), got: {instance_id}"
+        )
+    return instance_id
+
+
+def validate_model_name(model_name: str) -> str:
+    """Validate and sanitize model name to prevent path traversal and command injection.
+
+    Args:
+        model_name: Model name to validate
+
+    Returns:
+        Validated model name
+
+    Raises:
+        ConfigurationError: If model name contains dangerous patterns
+    """
+    if not model_name or not isinstance(model_name, str):
+        raise ConfigurationError("Model name must be a non-empty string")
+
+    # Check for path traversal attempts
+    if ".." in model_name:
+        raise ConfigurationError(
+            "Invalid model name: path traversal blocked (contains '..')"
+        )
+
+    # Check for absolute paths (security risk)
+    if model_name.startswith("/") or (len(model_name) > 1 and model_name[1] == ":"):
+        raise ConfigurationError(
+            "Invalid model name: absolute paths not allowed"
+        )
+
+    # Check for shell metacharacters that could enable command injection
+    dangerous_chars = [";", "|", "&", "$", "`", "\n", "\r", "<", ">"]
+    for char in dangerous_chars:
+        if char in model_name:
+            raise ConfigurationError(
+                f"Invalid model name: contains dangerous character '{char}'"
+            )
+
+    # Reasonable length limit
+    if len(model_name) > 500:
+        raise ConfigurationError(
+            f"Model name too long (max 500 chars), got: {len(model_name)}"
+        )
+
+    return model_name
+
+
+def validate_path(path: str, must_exist: bool = False, must_be_dir: bool = False) -> Path:
+    """Validate and sanitize file path to prevent traversal attacks.
+
+    Args:
+        path: Path to validate
+        must_exist: If True, path must exist
+        must_be_dir: If True, path must be a directory
+
+    Returns:
+        Validated Path object
+
+    Raises:
+        ConfigurationError: If path is invalid or dangerous
+    """
+    if not path or not isinstance(path, str):
+        raise ConfigurationError("Path must be a non-empty string")
+
+    # Convert to Path object for validation
+    try:
+        path_obj = Path(path).resolve()
+    except (ValueError, OSError) as e:
+        raise ConfigurationError(f"Invalid path format: {e}") from e
+
+    # Check for path traversal attempts
+    if ".." in path:
+        raise ConfigurationError(
+            "Invalid path: path traversal blocked (contains '..')"
+        )
+
+    # Validate existence if required
+    if must_exist and not path_obj.exists():
+        raise ConfigurationError(f"Path does not exist: {path_obj}")
+
+    # Validate directory if required
+    if must_be_dir and path_obj.exists() and not path_obj.is_dir():
+        raise ConfigurationError(f"Path is not a directory: {path_obj}")
+
+    return path_obj
+
+
+def validate_gpu_tier(tier: str) -> str:
+    """Validate GPU tier name.
+
+    Args:
+        tier: GPU tier name
+
+    Returns:
+        Validated tier name
+
+    Raises:
+        ConfigurationError: If tier is invalid
+    """
+    if not tier or not isinstance(tier, str):
+        raise ConfigurationError("GPU tier must be a non-empty string")
+
+    if tier not in GPU_TIERS:
+        available = ", ".join(GPU_TIERS.keys())
+        raise ConfigurationError(
+            f"Invalid GPU tier: {tier}. Available: {available}"
+        )
+
+    return tier
+
+
+def validate_disk_size(disk_gb: int) -> int:
+    """Validate disk size.
+
+    Args:
+        disk_gb: Disk size in GB
+
+    Returns:
+        Validated disk size
+
+    Raises:
+        ConfigurationError: If disk size is invalid
+    """
+    if not isinstance(disk_gb, int):
+        raise ConfigurationError(
+            f"Disk size must be an integer, got: {type(disk_gb).__name__}"
+        )
+    if disk_gb < 50:
+        raise ConfigurationError(
+            f"Disk size too small (min 50GB), got: {disk_gb}GB"
+        )
+    if disk_gb > 10000:  # 10TB reasonable upper bound
+        raise ConfigurationError(
+            f"Disk size too large (max 10000GB), got: {disk_gb}GB"
+        )
+    return disk_gb
+
+
+def validate_and_convert_instance_id(instance_id_str: str) -> str:
+    """Helper to validate instance ID string and return validated string.
+
+    Args:
+        instance_id_str: Instance ID as string
+
+    Returns:
+        Validated instance ID as string
+
+    Raises:
+        ValueError: If not a valid number
+        ConfigurationError: If invalid instance ID
+    """
+    instance_id_int = int(instance_id_str)  # Can raise ValueError
+    validate_instance_id(instance_id_int)  # Can raise ConfigurationError
+    return str(instance_id_int)
 
 
 # CLI Commands
@@ -482,9 +727,16 @@ def create_pod(ctx, tier: str, num_gpus: int):
         console.print("Set: export VAST_API_KEY='your-key'")
         return
 
-    if tier not in GPU_TIERS:
-        console.print(f"[yellow]Warning: Unknown tier '{tier}', using RTX_4090[/]")
-        tier = "RTX_4090"
+    # Validate inputs
+    try:
+        tier = validate_gpu_tier(tier)
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
+    if not isinstance(num_gpus, int) or num_gpus < 1 or num_gpus > 8:
+        console.print(f"[red]Invalid num_gpus: must be 1-8, got {num_gpus}[/]")
+        return
 
     tier_config = GPU_TIERS[tier]
     disk_gb = tier_config["disk_gb"]
@@ -638,6 +890,18 @@ def setup_instance(ctx, instance_id: Optional[str]):
             return
         instance_id = str(inst["id"])
 
+    # Validate instance_id
+    try:
+        instance_id_int = int(instance_id)
+        validate_instance_id(instance_id_int)
+        instance_id = str(instance_id_int)  # Use validated value
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
     console.print(
         Panel.fit(
             f"Setting up Heretic on Vast.ai\n\nInstance ID: [cyan]{instance_id}[/]",
@@ -652,19 +916,47 @@ def setup_instance(ctx, instance_id: Optional[str]):
     with console.status("[bold green]Connecting...") as status:
         try:
             conn.open()
+        except TimeoutError as e:
+            console.print(f"[red]SSH Connection Timeout[/]")
+            console.print("[yellow]Solutions:[/]")
+            console.print("  1. Check instance is running (heretic-vast list)")
+            console.print("  2. Verify instance SSH port is accessible")
+            console.print("  3. Check network connection")
+            raise SSHError(f"SSH connection timeout to instance {instance_id}") from e
+        except PermissionError as e:
+            console.print(f"[red]SSH Authentication Failed[/]")
+            console.print("[yellow]Check SSH key permissions and configuration[/]")
+            raise SSHError(f"SSH authentication failed to instance {instance_id}") from e
+        except ConnectionRefusedError as e:
+            console.print(f"[red]Connection Refused[/]")
+            console.print("[yellow]Instance may not be ready yet - wait and retry[/]")
+            raise SSHError(f"Connection refused to instance {instance_id}") from e
+        except EOFError as e:
+            console.print(f"[red]SSH Connection Closed Unexpectedly[/]")
+            console.print("[yellow]Instance may have stopped or network issue[/]")
+            raise SSHError(f"SSH connection closed to instance {instance_id}") from e
+        except KeyboardInterrupt:
+            raise
         except Exception as e:
+            # Safety net for unexpected SSH errors
             console.print(f"[red]SSH connection failed: {e}[/]")
-            return
+            console.print("[yellow]Check instance status and network[/]")
+            raise SSHError(f"SSH connection failed to instance {instance_id}: {e}") from e
 
         status.update("[bold green]Installing git...")
         run_ssh_command(
-            conn, "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1"
+            conn,
+            "apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1",
+            timeout=300,  # Package installation can be slow
+            critical=True,  # Must succeed
         )
         console.print("  [green]✓[/] git installed")
 
         status.update("[bold green]Configuring workspace...")
         run_ssh_command(
-            conn, "mkdir -p /workspace/.cache/huggingface /workspace/models"
+            conn,
+            "mkdir -p /workspace/.cache/huggingface /workspace/models",
+            critical=True,  # Must succeed
         )
         run_ssh_command(conn, "export HF_HOME=/workspace/.cache/huggingface")
         run_ssh_command(
@@ -677,6 +969,8 @@ def setup_instance(ctx, instance_id: Optional[str]):
         run_ssh_command(
             conn,
             "pip install --quiet git+https://github.com/quanticsoul4772/abliteration-workflow.git",
+            timeout=300,  # Git clone + pip install can be slow
+            critical=True,  # Must succeed
         )
         console.print("  [green]✓[/] heretic installed (from abliteration-workflow)")
 
@@ -684,6 +978,7 @@ def setup_instance(ctx, instance_id: Optional[str]):
         gpu_info = run_ssh_command(
             conn,
             "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader",
+            timeout=30,  # Quick command
         )
         console.print(f"  [green]✓[/] GPU: {gpu_info.strip()}")
 
@@ -702,12 +997,31 @@ def run_abliteration(ctx, model: str, instance_id: Optional[str]):
     """Run heretic abliteration on a model."""
     config = ctx.obj["config"]
 
+    # Validate model name
+    try:
+        model = validate_model_name(model)
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
     if not instance_id:
         inst = get_running_instance(config)
         if not inst:
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id_int = int(instance_id)
+        validate_instance_id(instance_id_int)
+        instance_id = str(instance_id_int)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     model_name = model.replace("/", "-")
     output_path = f"{MODELS_DIR}/{model_name}-heretic"
@@ -756,12 +1070,32 @@ def exec_command(ctx, command: str, instance_id: Optional[str]):
     """Execute a command on a Vast.ai instance."""
     config = ctx.obj["config"]
 
+    # Validate command (basic safety check - don't allow dangerous operations)
+    if not command or not isinstance(command, str):
+        console.print("[red]Command must be a non-empty string[/]")
+        return
+    if len(command) > 10000:
+        console.print("[red]Command too long (max 10000 chars)[/]")
+        return
+
     if not instance_id:
         inst = get_running_instance(config)
         if not inst:
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id_int = int(instance_id)
+        validate_instance_id(instance_id_int)
+        instance_id = str(instance_id_int)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -788,6 +1122,16 @@ def show_status(ctx, instance_id: Optional[str]):
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -842,6 +1186,16 @@ def show_progress(ctx, instance_id: Optional[str]):
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -904,12 +1258,27 @@ def watch_dashboard(ctx, instance_id: Optional[str], interval: int):
     """Live dashboard for monitoring abliteration progress."""
     config = ctx.obj["config"]
 
+    # Validate interval
+    if not isinstance(interval, int) or interval < 1 or interval > 300:
+        console.print("[red]Invalid interval: must be 1-300 seconds[/]")
+        return
+
     if not instance_id:
         inst = get_running_instance(config)
         if not inst:
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -1099,6 +1468,16 @@ def list_models(ctx, instance_id: Optional[str]):
             return
         instance_id = str(inst["id"])
 
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
     conn = get_connection(instance_id, config)
     if not conn:
         return
@@ -1141,12 +1520,37 @@ def download_model(
     """Download an abliterated model from Vast.ai."""
     config = ctx.obj["config"]
 
+    # Validate local_dir path
+    try:
+        local_path = validate_path(local_dir, must_exist=False, must_be_dir=False)
+    except ConfigurationError as e:
+        console.print(f"[red]Invalid local directory: {e}[/]")
+        return
+
+    # Validate model_name if provided
+    if model_name:
+        try:
+            model_name = validate_model_name(model_name)
+        except ConfigurationError as e:
+            console.print(f"[red]Validation Error: {e}[/]")
+            return
+
     if not instance_id:
         inst = get_running_instance(config)
         if not inst:
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     conn = get_connection(instance_id, config)
     if not conn:
@@ -1273,6 +1677,16 @@ def stop_instance(ctx, instance_id: Optional[str]):
             return
         instance_id = str(inst["id"])
 
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
     console.print(f"Stopping instance [cyan]{instance_id}[/]...")
     code, stdout, stderr = run_vastai_cmd(
         ["stop", "instance", str(instance_id)], config
@@ -1305,6 +1719,16 @@ def start_instance(ctx, instance_id: Optional[str]):
             console.print("[red]Error: No stopped instance found[/]")
             return
 
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
+
     console.print(f"Starting instance [cyan]{instance_id}[/]...")
     code, stdout, stderr = run_vastai_cmd(
         ["start", "instance", str(instance_id)], config
@@ -1320,6 +1744,16 @@ def start_instance(ctx, instance_id: Optional[str]):
 def terminate_instance(ctx, instance_id: str):
     """Permanently destroy a Vast.ai instance."""
     config = ctx.obj["config"]
+
+    # Validate instance_id BEFORE asking for confirmation
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     if (
         not console.input(
@@ -1351,6 +1785,16 @@ def connect_ssh(ctx, instance_id: Optional[str]):
             console.print("[red]Error: No running instance found[/]")
             return
         instance_id = str(inst["id"])
+
+    # Validate instance_id
+    try:
+        instance_id = validate_and_convert_instance_id(instance_id)
+    except ValueError:
+        console.print(f"[red]Invalid instance ID: must be a number, got '{instance_id}'[/]")
+        return
+    except ConfigurationError as e:
+        console.print(f"[red]Validation Error: {e}[/]")
+        return
 
     ssh_info = get_ssh_info(instance_id, config)
     if not ssh_info:

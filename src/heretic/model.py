@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 import torch.nn.functional as F
+from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, RepositoryNotFoundError
+from requests.exceptions import ConnectionError, Timeout
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
@@ -22,7 +24,11 @@ from transformers import (
 from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
+from .exceptions import ModelInferenceError, ModelLoadError
+from .logging import get_logger
 from .utils import batchify, empty_cache, print
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from .evaluator import Evaluator
@@ -605,12 +611,41 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+        logger.info("Initializing model", model=settings.model)
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-            settings.model
-        )
+        try:
+            self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+                settings.model
+            )
+            logger.debug("Tokenizer loaded successfully", model=settings.model)
+        except RepositoryNotFoundError as error:
+            logger.error("Tokenizer not found", model=settings.model, error=str(error))
+            print(f"[red]Tokenizer Not Found: {settings.model}[/]")
+            print("[yellow]Solutions:[/]")
+            print(f"  1. Check model name spelling: {settings.model}")
+            print("  2. Search HuggingFace Hub: https://huggingface.co/models")
+            raise ModelLoadError(
+                f"Tokenizer for model '{settings.model}' not found. "
+                f"Check model name or search: https://huggingface.co/models"
+            ) from error
+        except GatedRepoError as error:
+            logger.error("Model requires authentication", model=settings.model)
+            print(f"[red]Authentication Required: {settings.model}[/]")
+            print("[yellow]Run: huggingface-cli login[/]")
+            raise ModelLoadError(
+                f"Model '{settings.model}' requires authentication. "
+                f"Run 'huggingface-cli login' first."
+            ) from error
+        except (ConnectionError, Timeout) as error:
+            logger.error("Network error loading tokenizer", model=settings.model, error=str(error))
+            print(f"[red]Network Error: Cannot download tokenizer[/]")
+            print("[yellow]Check internet connection and try again[/]")
+            raise ModelLoadError(
+                f"Network error downloading tokenizer for '{settings.model}'. "
+                f"Check internet connection."
+            ) from error
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
@@ -619,8 +654,10 @@ class Model:
 
         self.model = None
 
+        logger.debug("Starting dtype fallback chain", dtypes=[str(d) for d in settings.dtypes])
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
+            logger.debug("Attempting dtype", dtype=str(dtype))
 
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -633,7 +670,87 @@ class Model:
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
                 self.generate(["Test"], max_new_tokens=1)
+            except RepositoryNotFoundError as error:
+                logger.error("Model repository not found", model=settings.model)
+                # Model not found on HuggingFace Hub
+                print()
+                print(f"[red]Model Not Found: {settings.model}[/]")
+                print("[yellow]Solutions:[/]")
+                print(f"  1. Check model name spelling: {settings.model}")
+                print("  2. Search HuggingFace Hub: https://huggingface.co/models")
+                print("  3. Verify model exists and is not private")
+                raise ModelLoadError(
+                    f"Model '{settings.model}' not found on HuggingFace Hub. "
+                    f"Check spelling or search: https://huggingface.co/models"
+                ) from error
+            except GatedRepoError as error:
+                # Model requires authentication
+                print()
+                print(f"[red]Authentication Required: {settings.model}[/]")
+                print("[yellow]Solutions:[/]")
+                print("  1. Login with: huggingface-cli login")
+                print("  2. Or set HF_TOKEN environment variable")
+                print("  3. Accept model terms on HuggingFace Hub if required")
+                raise ModelLoadError(
+                    f"Model '{settings.model}' is gated and requires authentication. "
+                    f"Run 'huggingface-cli login' or set HF_TOKEN environment variable."
+                ) from error
+            except (ConnectionError, Timeout) as error:
+                # Network error during model download
+                print()
+                print(f"[red]Network Error: Cannot download model[/]")
+                print("[yellow]Solutions:[/]")
+                print("  1. Check your internet connection")
+                print("  2. Try again in a few minutes")
+                print("  3. Check HuggingFace Hub status: https://status.huggingface.co")
+                raise ModelLoadError(
+                    f"Network error while downloading model '{settings.model}'. "
+                    f"Check internet connection and try again."
+                ) from error
+            except OSError as error:
+                # Check if disk space error
+                error_msg = str(error).lower()
+                if "disk" in error_msg or "space" in error_msg or "storage" in error_msg:
+                    print()
+                    print(f"[red]Insufficient Disk Space[/]")
+                    print("[yellow]Solutions:[/]")
+                    print("  1. Free up disk space (check cache directory)")
+                    print(f"  2. Clear HuggingFace cache: rm -rf ~/.cache/huggingface")
+                    print("  3. Use smaller model or quantized version")
+                    raise ModelLoadError(
+                        f"Insufficient disk space to download model '{settings.model}'. "
+                        f"Free up space or clear cache: ~/.cache/huggingface"
+                    ) from error
+                # Other OS errors - let them fall through to general exception
+                self.model = None
+                empty_cache()
+                print(f"[red]Failed[/] ({error})")
+                continue
+            except RuntimeError as error:
+                # Check if dtype incompatibility (probability tensor error)
+                error_msg = str(error).lower()
+                if "probability" in error_msg or "inf" in error_msg or "nan" in error_msg:
+                    # Dtype incompatibility - try next dtype
+                    self.model = None
+                    empty_cache()
+                    print(f"[yellow]Incompatible[/] (dtype issue, trying next...)")
+                    continue
+                # Other runtime errors - let them fall through
+                self.model = None
+                empty_cache()
+                print(f"[red]Failed[/] ({error})")
+                continue
+            except torch.cuda.OutOfMemoryError as error:
+                # GPU out of memory - try next dtype (lower precision)
+                self.model = None
+                empty_cache()
+                print(f"[yellow]GPU OOM[/] (trying next dtype...)")
+                continue
+            except KeyboardInterrupt:
+                # CRITICAL: Always let user interrupt
+                raise
             except Exception as error:
+                # Unexpected error - log and continue to next dtype
                 self.model = None
                 empty_cache()
                 print(f"[red]Failed[/] ({error})")
@@ -644,7 +761,17 @@ class Model:
             break
 
         if self.model is None:
-            raise Exception("Failed to load model with all configured dtypes.")
+            print()
+            print(f"[red]Failed to load model with any configured dtype[/]")
+            print(f"[yellow]Tried dtypes: {settings.dtypes}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Add more dtypes to config: dtypes = [torch.float16, torch.bfloat16, torch.float32]")
+            print("  2. Check GPU compatibility (older GPUs may not support bfloat16)")
+            print("  3. Try smaller model or quantized version")
+            raise ModelLoadError(
+                f"Failed to load model '{settings.model}' with any configured dtype. "
+                f"Tried: {settings.dtypes}. Check GPU compatibility or try different dtypes."
+            )
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")

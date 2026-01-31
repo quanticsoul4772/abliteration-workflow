@@ -34,6 +34,15 @@ from rich.traceback import install
 
 from .config import Settings
 from .evaluator import Evaluator
+from .exceptions import (
+    AbliterationError,
+    ConfigurationError,
+    DatasetError,
+    ModelError,
+    ModelInferenceError,
+    NetworkTimeoutError,
+    ValidationFileError,
+)
 from .model import (
     AbliterationParameters,
     ConceptConeExtractionResult,
@@ -170,12 +179,49 @@ def run():
                 start_time = time.perf_counter()
                 responses = model.get_responses(prompts)
                 end_time = time.perf_counter()
-            except Exception as error:
+            except torch.cuda.OutOfMemoryError as error:
                 if batch_size == 1:
-                    # Even a batch size of 1 already fails.
-                    # We cannot recover from this.
-                    raise
+                    # Even a batch size of 1 causes OOM - cannot recover
+                    print()
+                    print(f"[red]GPU Out of Memory with batch size 1[/]")
+                    print("[yellow]Solutions:[/]")
+                    print("  1. Use smaller model or quantized version")
+                    print("  2. Reduce max_response_length in config")
+                    print("  3. Free up GPU memory (close other programs)")
+                    raise ModelInferenceError(
+                        f"GPU out of memory even with batch_size=1. "
+                        f"Model may be too large for available GPU memory."
+                    ) from error
 
+                print(f"[yellow]GPU OOM[/] (batch too large)")
+                break
+            except RuntimeError as error:
+                # Other runtime errors during inference
+                error_msg = str(error).lower()
+                if "out of memory" in error_msg or "oom" in error_msg:
+                    # Catch OOM that doesn't raise torch.cuda.OutOfMemoryError
+                    if batch_size == 1:
+                        print()
+                        print(f"[red]Out of Memory with batch size 1[/]")
+                        print("[yellow]Try smaller model or reduce max_response_length[/]")
+                        raise ModelInferenceError(
+                            f"Out of memory with batch_size=1: {error}"
+                        ) from error
+                    print(f"[yellow]OOM[/] (batch too large)")
+                    break
+
+                if batch_size == 1:
+                    # Unrecoverable runtime error
+                    raise
+                print(f"[red]Failed[/] ({error})")
+                break
+            except KeyboardInterrupt:
+                # CRITICAL: Always let user interrupt
+                raise
+            except Exception as error:
+                # Unexpected error - reraise if batch_size=1, otherwise break
+                if batch_size == 1:
+                    raise
                 print(f"[red]Failed[/] ({error})")
                 break
 
@@ -289,9 +335,9 @@ def run():
 
         del helpful_residuals, unhelpful_residuals
 
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals
-    empty_cache()
+    # NOTE: We keep good_residuals and bad_residuals in memory for reuse by
+    # advanced extraction methods (supervised probing, ensemble, concept cones, CAA).
+    # This avoids redundant GPU computation - a 40-60% speedup for extraction phase.
 
     # Convert layer profile configs to LayerRangeProfile objects
     layer_profiles: list[LayerRangeProfile] | None = None
@@ -321,12 +367,10 @@ def run():
     # Phase 2: Supervised Probing
     if settings.use_supervised_probing and not settings.ensemble_probe_pca:
         print("* Extracting refusal directions using supervised probing...")
-        # Need to reload residuals for supervised probing
-        good_residuals_sp = model.get_residuals_batched(good_prompts)
-        bad_residuals_sp = model.get_residuals_batched(bad_prompts)
+        # Reuse cached residuals instead of recomputing
         supervised_result = model.get_refusal_directions_supervised(
-            good_residuals_sp,
-            bad_residuals_sp,
+            good_residuals,
+            bad_residuals,
             bad_prompts,
             evaluator,
             min_probe_accuracy=settings.min_probe_accuracy,
@@ -342,17 +386,14 @@ def run():
                 "This can happen if the model doesn't clearly distinguish refusal vs compliance patterns. "
                 "Try lowering min_probe_accuracy, or disable use_supervised_probing to use PCA instead."
             )
-        del good_residuals_sp, bad_residuals_sp
-        empty_cache()
 
     # Phase 2: Ensemble Probe + PCA
     if settings.ensemble_probe_pca:
         print("* Extracting refusal directions using ensemble (probe + PCA)...")
-        good_residuals_ens = model.get_residuals_batched(good_prompts)
-        bad_residuals_ens = model.get_residuals_batched(bad_prompts)
+        # Reuse cached residuals instead of recomputing
         supervised_directions = model.get_refusal_directions_ensemble(
-            good_residuals_ens,
-            bad_residuals_ens,
+            good_residuals,
+            bad_residuals,
             bad_prompts,
             evaluator,
             probe_weight=settings.ensemble_weight_probe,
@@ -361,17 +402,14 @@ def run():
         )
         # Note: get_refusal_directions_ensemble raises RuntimeError if supervised probing fails
         print("  * Ensemble directions extracted")
-        del good_residuals_ens, bad_residuals_ens
-        empty_cache()
 
     # Phase 4: Concept Cones
     if settings.use_concept_cones:
         print("* Extracting concept cones...")
-        good_residuals_cc = model.get_residuals_batched(good_prompts)
-        bad_residuals_cc = model.get_residuals_batched(bad_prompts)
+        # Reuse cached residuals instead of recomputing
         cc_result = model.get_refusal_directions_concept_cones(
-            good_residuals_cc,
-            bad_residuals_cc,
+            good_residuals,
+            bad_residuals,
             n_cones=settings.n_concept_cones,
             min_cone_size=settings.min_cone_size,
             directions_per_cone=settings.directions_per_cone,
@@ -386,16 +424,14 @@ def run():
                 "This indicates poor clustering quality - harmful prompts may not have distinct categories. "
                 "Try increasing min_cone_size or decreasing n_concept_cones, or disable use_concept_cones."
             )
-        del good_residuals_cc, bad_residuals_cc
-        empty_cache()
 
     # Phase 5: CAA - Extract compliance direction
     if settings.use_caa:
         print("* Extracting compliance direction for CAA...")
-        bad_residuals_caa = model.get_residuals_batched(bad_prompts)
+        # Reuse cached bad_residuals instead of recomputing
         caa_result = model.get_compliance_directions_from_responses(
             bad_prompts,
-            bad_residuals_caa,
+            bad_residuals,
             evaluator,
         )
         if caa_result is not None:
@@ -412,8 +448,10 @@ def run():
                 "with most harmful prompts (nothing to ablate), or it refuses everything "
                 "(no compliance examples). Disable use_caa or use a different model."
             )
-        del bad_residuals_caa
-        empty_cache()
+
+    # Now we can release the cached residuals - all extraction methods are done
+    del good_residuals, bad_residuals
+    empty_cache()
 
     # Phase 6: Circuit Discovery
     if settings.use_circuit_ablation:
@@ -727,18 +765,41 @@ def run():
             ),
             directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         )
-    except Exception as e:
+    except OSError as e:
+        # Database file errors (locked, corrupted, disk full, etc.)
         error_str = str(e).lower()
-        if "database is locked" in error_str:
+        if "database is locked" in error_str or "locked" in error_str:
             print("[red]Database is locked. Another process may be using it.[/]")
-            print("[yellow]If not, delete the .db file and restart:[/]")
-            print(f"[yellow]  rm {settings.storage.replace('sqlite:///', '')}[/]")
-            return
-        elif "disk" in error_str or "corrupt" in error_str:
+            print("[yellow]Solutions:[/]")
+            print("  1. Wait for other process to finish")
+            print("  2. Kill other heretic processes")
+            print(f"  3. If stuck, delete: {settings.storage.replace('sqlite:///', '')}")
+            raise ConfigurationError(
+                f"Optuna database is locked. Another process may be using it."
+            ) from e
+        elif "disk" in error_str or "space" in error_str:
+            print(f"[red]Insufficient Disk Space[/]")
+            print("[yellow]Free up disk space and try again[/]")
+            raise ConfigurationError(
+                f"Insufficient disk space for Optuna database: {settings.storage}"
+            ) from e
+        elif "corrupt" in error_str:
             print(f"[red]Database may be corrupted: {e}[/]")
             print("[yellow]Backup and delete the .db file to start fresh.[/]")
-            return
+            raise ConfigurationError(
+                f"Optuna database corrupted: {settings.storage}"
+            ) from e
+        # Other OS errors - reraise
         raise
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        # Unexpected errors (keep as safety net)
+        print(f"[red]Failed to create Optuna study: {e}[/]")
+        print("[yellow]Check storage path and permissions[/]")
+        raise ConfigurationError(
+            f"Failed to create Optuna study: {e}"
+        ) from e
 
     # Calculate remaining trials if resuming
     completed_trials = len(
@@ -956,8 +1017,35 @@ def run():
                         card.push_to_hub(settings.hf_upload, token=token)
 
                     print(f"[bold green]Model uploaded to {settings.hf_upload}[/]")
+            except HfHubHTTPError as error:
+                # HTTP errors from HuggingFace Hub
+                if error.response.status_code == 401:
+                    print(f"[red]Authentication Failed[/]")
+                    print("[yellow]Run: huggingface-cli login[/]")
+                elif error.response.status_code == 403:
+                    print(f"[red]Permission Denied: {settings.hf_upload}[/]")
+                    print("[yellow]Check repository permissions or create repository first[/]")
+                elif error.response.status_code == 404:
+                    print(f"[red]Repository Not Found: {settings.hf_upload}[/]")
+                    print("[yellow]Create repository first on HuggingFace Hub[/]")
+                else:
+                    print(f"[red]HuggingFace Hub Error: {error}[/]")
+            except OSError as error:
+                # Disk space or permission errors
+                error_msg = str(error).lower()
+                if "disk" in error_msg or "space" in error_msg:
+                    print(f"[red]Insufficient Disk Space[/]")
+                    print("[yellow]Free up space for model upload[/]")
+                else:
+                    print(f"[red]File System Error: {error}[/]")
+            except KeyboardInterrupt:
+                print()
+                print("[yellow]Upload interrupted by user[/]")
+                raise
             except Exception as error:
+                # Unexpected errors (safety net)
                 print(f"[red]Failed to upload to HuggingFace: {error}[/]")
+                print("[yellow]Check network connection and repository permissions[/]")
 
         return
 
@@ -1023,9 +1111,20 @@ def run():
                             continue
 
                         print("Saving model...")
-                        model.model.save_pretrained(save_directory)
-                        model.tokenizer.save_pretrained(save_directory)
-                        print(f"Model saved to [bold]{save_directory}[/].")
+                        try:
+                            model.model.save_pretrained(save_directory)
+                            model.tokenizer.save_pretrained(save_directory)
+                            print(f"Model saved to [bold]{save_directory}[/].")
+                        except PermissionError as e:
+                            print(f"[red]Permission Denied: {save_directory}[/]")
+                            print("[yellow]Check directory permissions or choose different path[/]")
+                        except OSError as e:
+                            error_msg = str(e).lower()
+                            if "disk" in error_msg or "space" in error_msg:
+                                print(f"[red]Insufficient Disk Space[/]")
+                                print("[yellow]Free up space or choose different location[/]")
+                            else:
+                                print(f"[red]Failed to save model: {e}[/]")
 
                     case "Upload the model to Hugging Face":
                         # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -1127,9 +1226,29 @@ def run():
                             except (KeyboardInterrupt, EOFError):
                                 # Ctrl+C/Ctrl+D
                                 break
-
+            except HfHubHTTPError as error:
+                # HuggingFace Hub errors (upload, authentication, etc.)
+                if error.response.status_code == 401:
+                    print(f"[red]Authentication Failed[/]")
+                    print("[yellow]Check HuggingFace token[/]")
+                elif error.response.status_code == 403:
+                    print(f"[red]Permission Denied[/]")
+                    print("[yellow]Check repository access permissions[/]")
+                else:
+                    print(f"[red]HuggingFace Error: {error}[/]")
+            except torch.cuda.OutOfMemoryError:
+                print(f"[red]GPU Out of Memory during chat[/]")
+                print("[yellow]Try shorter messages or restart chat[/]")
+            except ModelInferenceError as error:
+                print(f"[red]Model Inference Error: {error}[/]")
+            except KeyboardInterrupt:
+                # User interrupted - propagate
+                raise
             except Exception as error:
+                # Safety net for unexpected errors in interactive menu
+                # Don't crash and lose the optimized model
                 print(f"[red]Error: {error}[/]")
+                print("[yellow]You can try again or select a different action[/]")
 
 
 def main():

@@ -14,10 +14,18 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from datasets import load_dataset, load_from_disk
+from datasets.exceptions import DatasetNotFoundError
+from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, RepositoryNotFoundError
 from optuna import Trial
+from requests.exceptions import ConnectionError, Timeout
+from requests import HTTPError
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
+from .exceptions import DatasetConfigError, DatasetError, NetworkTimeoutError
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 print = Console(highlight=False).print
 
@@ -112,10 +120,19 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         ValueError: If C4 dataset is missing required config or sample count
         RuntimeError: If streaming fails due to network or other issues
     """
+    logger.debug(
+        "Loading prompts",
+        dataset=specification.dataset,
+        config=specification.config,
+        split=specification.split,
+        column=specification.column,
+    )
+
     # Check if dataset is a local path
     dataset_path = Path(specification.dataset)
     if dataset_path.exists() and dataset_path.is_dir():
         # Local dataset saved with save_to_disk()
+        logger.debug("Loading from local disk", path=str(dataset_path))
         dataset_dict = load_from_disk(specification.dataset)
         dataset = dataset_dict[specification.split]
         return list(dataset[specification.column])
@@ -158,10 +175,47 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
                 split=base_split,  # Use base split without slice notation
                 streaming=True,  # KEY: Stream instead of download
             )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to stream C4 dataset. Network required. Original error: {e}"
+        except (ConnectionError, Timeout) as e:
+            logger.error(
+                "Network error streaming dataset",
+                dataset=specification.dataset,
+                config=specification.config,
+                error=str(e),
+            )
+            print(f"[red]Network Error: Cannot stream dataset[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check your internet connection")
+            print("  2. Try again in a few minutes")
+            print("  3. Check HuggingFace Hub status: https://status.huggingface.co")
+            raise NetworkTimeoutError(
+                f"Network timeout while streaming dataset '{specification.dataset}'. "
+                f"Check internet connection and try again."
             ) from e
+        except ValueError as e:
+            # Config parameter error
+            error_msg = str(e).lower()
+            if "config" in error_msg or "variant" in error_msg:
+                print(f"[red]Dataset Config Error: {specification.dataset}[/]")
+                print("[yellow]Solutions:[/]")
+                print(f"  1. Add config parameter: --unhelpfulness-prompts.config en")
+                print(f"  2. List available configs: from datasets import get_dataset_config_names")
+                print(f"     get_dataset_config_names('{specification.dataset}')")
+                raise DatasetConfigError(
+                    f"Dataset '{specification.dataset}' requires a config parameter. "
+                    f"Try: --unhelpfulness-prompts.config en"
+                ) from e
+            raise
+        except DatasetNotFoundError as e:
+            print(f"[red]Dataset Not Found: {specification.dataset}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check dataset name spelling")
+            print("  2. Search HuggingFace Hub: https://huggingface.co/datasets")
+            raise DatasetError(
+                f"Dataset '{specification.dataset}' not found. "
+                f"Search: https://huggingface.co/datasets"
+            ) from e
+        except KeyboardInterrupt:
+            raise
 
         # Take N samples from stream and materialize to list
         # This downloads only the data needed, not full shards
@@ -171,11 +225,28 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
                 if i >= sample_count:
                     break
                 prompts.append(example[specification.column])
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to stream C4 examples (got {len(prompts)}/{sample_count}). "
-                f"Check network connectivity. Original error: {e}"
+        except (ConnectionError, Timeout) as e:
+            print(f"[red]Network Error: Stream interrupted[/]")
+            print(f"[yellow]Got {len(prompts)}/{sample_count} examples before failure[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check internet connection")
+            print("  2. Try again - streaming will resume")
+            raise NetworkTimeoutError(
+                f"Network error while streaming examples (got {len(prompts)}/{sample_count}). "
+                f"Check internet connection."
             ) from e
+        except KeyError as e:
+            print(f"[red]Column Not Found: {specification.column}[/]")
+            print(f"[yellow]Dataset: {specification.dataset}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check column name spelling")
+            print(f"  2. List available columns: dataset.column_names")
+            raise DatasetConfigError(
+                f"Column '{specification.column}' not found in dataset '{specification.dataset}'. "
+                f"Check column name or list available columns."
+            ) from e
+        except KeyboardInterrupt:
+            raise
 
         # FAIL LOUDLY: Verify we got expected count
         if len(prompts) < sample_count:
@@ -186,14 +257,100 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         return prompts
     else:
         # Other datasets: use existing download behavior
-        if specification.config:
-            dataset = load_dataset(
-                specification.dataset, specification.config, split=specification.split
-            )
-        else:
-            dataset = load_dataset(specification.dataset, split=specification.split)
+        try:
+            if specification.config:
+                dataset = load_dataset(
+                    specification.dataset, specification.config, split=specification.split
+                )
+            else:
+                dataset = load_dataset(specification.dataset, split=specification.split)
+        except (ConnectionError, Timeout) as e:
+            print(f"[red]Network Error: Cannot download dataset[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check your internet connection")
+            print("  2. Try again in a few minutes")
+            print("  3. Check HuggingFace Hub status: https://status.huggingface.co")
+            raise NetworkTimeoutError(
+                f"Network timeout while downloading dataset '{specification.dataset}'. "
+                f"Check internet connection and try again."
+            ) from e
+        except HTTPError as e:
+            # Check for authentication or not found
+            if e.response.status_code == 401:
+                print(f"[red]Authentication Required: {specification.dataset}[/]")
+                print("[yellow]Run: huggingface-cli login[/]")
+                raise DatasetError(
+                    f"Dataset '{specification.dataset}' requires authentication. "
+                    f"Run 'huggingface-cli login' first."
+                ) from e
+            elif e.response.status_code == 404:
+                print(f"[red]Dataset Not Found: {specification.dataset}[/]")
+                print("[yellow]Search HuggingFace Hub: https://huggingface.co/datasets[/]")
+                raise DatasetError(
+                    f"Dataset '{specification.dataset}' not found. "
+                    f"Check name or search: https://huggingface.co/datasets"
+                ) from e
+            raise
+        except DatasetNotFoundError as e:
+            print(f"[red]Dataset Config Not Found: {specification.config}[/]")
+            print(f"[yellow]Dataset: {specification.dataset}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check config name spelling")
+            print(f"  2. List available configs: from datasets import get_dataset_config_names")
+            print(f"     get_dataset_config_names('{specification.dataset}')")
+            raise DatasetConfigError(
+                f"Config '{specification.config}' not found for dataset '{specification.dataset}'. "
+                f"Use get_dataset_config_names() to list available configs."
+            ) from e
+        except ValueError as e:
+            # Check if split format error
+            error_msg = str(e).lower()
+            if "split" in error_msg:
+                print(f"[red]Invalid Split Format: {specification.split}[/]")
+                print("[yellow]Solutions:[/]")
+                print("  1. Use valid split format: 'train', 'test', 'validation'")
+                print("  2. For slices: 'train[:100]' or 'train[10:20]'")
+                print("  3. For percentages: 'train[:10%]'")
+                raise DatasetConfigError(
+                    f"Invalid split format: '{specification.split}'. "
+                    f"Use format like 'train', 'train[:100]', or 'train[:10%]'"
+                ) from e
+            elif "config" in error_msg:
+                print(f"[red]Dataset Config Required: {specification.dataset}[/]")
+                print("[yellow]Add config parameter (e.g., --unhelpfulness-prompts.config en)[/]")
+                raise DatasetConfigError(
+                    f"Dataset '{specification.dataset}' requires a config parameter. "
+                    f"Try adding: --unhelpfulness-prompts.config <config_name>"
+                ) from e
+            raise
+        except OSError as e:
+            # Check if disk space error
+            error_msg = str(e).lower()
+            if "disk" in error_msg or "space" in error_msg or "storage" in error_msg:
+                print(f"[red]Insufficient Disk Space[/]")
+                print("[yellow]Solutions:[/]")
+                print("  1. Free up disk space")
+                print("  2. Clear HuggingFace cache: rm -rf ~/.cache/huggingface/datasets")
+                print("  3. Use smaller dataset split (e.g., train[:100] instead of train[:1000])")
+                raise DatasetError(
+                    f"Insufficient disk space to download dataset '{specification.dataset}'. "
+                    f"Free up space or use smaller split."
+                ) from e
+            raise
+        except KeyboardInterrupt:
+            raise
 
-        return list(dataset[specification.column])
+        try:
+            return list(dataset[specification.column])
+        except KeyError as e:
+            print(f"[red]Column Not Found: {specification.column}[/]")
+            print(f"[yellow]Dataset: {specification.dataset}[/]")
+            print("[yellow]Available columns:[/]")
+            print(f"  {list(dataset.column_names)}")
+            raise DatasetConfigError(
+                f"Column '{specification.column}' not found in dataset '{specification.dataset}'. "
+                f"Available columns: {list(dataset.column_names)}"
+            ) from e
 
 
 T = TypeVar("T")

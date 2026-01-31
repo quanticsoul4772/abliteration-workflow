@@ -10,6 +10,8 @@ This module provides tools to:
 """
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from datasets import load_dataset
 
+from .exceptions import ValidationFileError
 from .utils import print
 
 if TYPE_CHECKING:
@@ -123,33 +126,213 @@ class ValidationReport:
         }
 
     def save(self, path: str | Path) -> None:
-        """Save report to JSON file."""
+        """Save report to JSON file with atomic write and error handling."""
         path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+
+        # Validate parent directory
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            print(f"[red]Permission Denied: Cannot create directory[/]")
+            print(f"[yellow]Path: {path.parent}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check directory permissions")
+            print("  2. Try a different output directory")
+            print("  3. Run with appropriate permissions")
+            raise ValidationFileError(
+                f"Permission denied creating directory: {path.parent}"
+            ) from e
+        except OSError as e:
+            error_msg = str(e).lower()
+            if "disk" in error_msg or "space" in error_msg or "storage" in error_msg:
+                print(f"[red]Insufficient Disk Space[/]")
+                print("[yellow]Solutions:[/]")
+                print("  1. Free up disk space")
+                print("  2. Choose different output directory")
+                raise ValidationFileError(
+                    f"Insufficient disk space to create directory: {path.parent}"
+                ) from e
+            raise ValidationFileError(f"Failed to create directory: {path.parent}") from e
+
+        # Check disk space (need ~1MB for JSON report)
+        try:
+            stat = os.statvfs(path.parent) if hasattr(os, 'statvfs') else None
+            if stat and (stat.f_bavail * stat.f_frsize) < 1_000_000:  # < 1MB
+                print(f"[red]Insufficient Disk Space (< 1MB available)[/]")
+                print("[yellow]Free up space before saving report[/]")
+                raise ValidationFileError(
+                    f"Insufficient disk space to save report: {path}"
+                )
+        except AttributeError:
+            # statvfs not available on Windows - skip check
+            pass
+
+        # Atomic write: write to temp file, then rename
+        # This ensures we never have a partial/corrupted file
+        temp_fd = None
+        temp_path = None
+        try:
+            # Create temp file in same directory for atomic rename
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp"
+            )
+
+            # Write JSON to temp file
+            with os.fdopen(temp_fd, 'w') as f:
+                temp_fd = None  # fdopen took ownership
+                json.dump(self.to_dict(), f, indent=2)
+
+            # Atomic rename (on POSIX) or best-effort rename (on Windows)
+            Path(temp_path).replace(path)
+
+        except PermissionError as e:
+            print(f"[red]Permission Denied: Cannot write file[/]")
+            print(f"[yellow]Path: {path}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check file permissions")
+            print("  2. Close any programs using this file")
+            print("  3. Try a different output path")
+            raise ValidationFileError(
+                f"Permission denied writing file: {path}"
+            ) from e
+        except OSError as e:
+            error_msg = str(e).lower()
+            if "disk" in error_msg or "space" in error_msg or "storage" in error_msg:
+                print(f"[red]Disk Full: Cannot write file[/]")
+                print("[yellow]Free up disk space and try again[/]")
+                raise ValidationFileError(
+                    f"Disk full while writing file: {path}"
+                ) from e
+            raise ValidationFileError(f"Failed to write file: {path}") from e
+        except (TypeError, ValueError) as e:
+            # JSON serialization error
+            print(f"[red]Serialization Error: Cannot convert report to JSON[/]")
+            print(f"[yellow]Error: {e}[/]")
+            raise ValidationFileError(
+                f"Failed to serialize validation report to JSON: {e}"
+            ) from e
+        finally:
+            # Clean up temp file if something went wrong
+            if temp_fd is not None:
+                try:
+                    os.close(temp_fd)
+                except OSError:
+                    pass
+            if temp_path and Path(temp_path).exists():
+                try:
+                    Path(temp_path).unlink()
+                except OSError:
+                    pass
 
     @classmethod
     def load(cls, path: str | Path) -> "ValidationReport":
-        """Load report from JSON file."""
-        with open(path) as f:
-            data = json.load(f)
+        """Load report from JSON file with validation and error handling."""
+        path = Path(path)
 
-        baseline = ValidationMetrics(**data["baseline"])
-        post = (
-            ValidationMetrics(**data["post_abliteration"])
-            if data["post_abliteration"]
-            else None
-        )
+        # Check file exists
+        if not path.exists():
+            print(f"[red]File Not Found: {path}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check file path spelling")
+            print("  2. Verify file hasn't been moved or deleted")
+            print("  3. Check current working directory")
+            raise ValidationFileError(
+                f"Validation report not found: {path}"
+            )
 
-        report = cls(
-            model_name=data["model_name"],
-            baseline=baseline,
-            post_abliteration=post,
-        )
-        if post:
-            report.compute_improvements()
-        return report
+        # Check file is readable
+        if not os.access(path, os.R_OK):
+            print(f"[red]Permission Denied: Cannot read file[/]")
+            print(f"[yellow]Path: {path}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. Check file permissions")
+            print("  2. Run with appropriate permissions")
+            raise ValidationFileError(
+                f"Permission denied reading file: {path}"
+            )
+
+        # Load and parse JSON
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"[red]Corrupted File: Invalid JSON[/]")
+            print(f"[yellow]Path: {path}[/]")
+            print(f"[yellow]Error at line {e.lineno}, column {e.colno}:[/]")
+            print(f"  {e.msg}")
+            print("[yellow]Solutions:[/]")
+            print("  1. File may be corrupted - restore from backup")
+            print("  2. Regenerate validation report")
+            print("  3. Check file wasn't manually edited")
+            raise ValidationFileError(
+                f"Corrupted validation report - invalid JSON at line {e.lineno}, "
+                f"column {e.colno}: {e.msg}"
+            ) from e
+        except UnicodeDecodeError as e:
+            print(f"[red]Encoding Error: Cannot decode file[/]")
+            print(f"[yellow]Path: {path}[/]")
+            print("[yellow]File may be corrupted or in wrong format[/]")
+            raise ValidationFileError(
+                f"Failed to decode validation report (encoding error): {path}"
+            ) from e
+
+        # Validate required fields
+        required_fields = ["model_name", "baseline", "post_abliteration"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            print(f"[red]Invalid Report: Missing required fields[/]")
+            print(f"[yellow]Path: {path}[/]")
+            print(f"[yellow]Missing fields: {missing_fields}[/]")
+            print("[yellow]Solutions:[/]")
+            print("  1. File may be from old version - regenerate report")
+            print("  2. Restore from backup if available")
+            raise ValidationFileError(
+                f"Invalid validation report - missing fields: {missing_fields}"
+            )
+
+        # Parse validation metrics
+        try:
+            baseline = ValidationMetrics(**data["baseline"])
+        except (TypeError, KeyError) as e:
+            print(f"[red]Invalid Baseline Metrics[/]")
+            print(f"[yellow]Error: {e}[/]")
+            print("[yellow]Regenerate validation report[/]")
+            raise ValidationFileError(
+                f"Invalid baseline metrics in validation report: {e}"
+            ) from e
+
+        try:
+            post = (
+                ValidationMetrics(**data["post_abliteration"])
+                if data["post_abliteration"]
+                else None
+            )
+        except (TypeError, KeyError) as e:
+            print(f"[red]Invalid Post-Abliteration Metrics[/]")
+            print(f"[yellow]Error: {e}[/]")
+            print("[yellow]Regenerate validation report[/]")
+            raise ValidationFileError(
+                f"Invalid post-abliteration metrics in validation report: {e}"
+            ) from e
+
+        # Create report
+        try:
+            report = cls(
+                model_name=data["model_name"],
+                baseline=baseline,
+                post_abliteration=post,
+            )
+            if post:
+                report.compute_improvements()
+            return report
+        except Exception as e:
+            print(f"[red]Failed to Create Validation Report[/]")
+            print(f"[yellow]Error: {e}[/]")
+            raise ValidationFileError(
+                f"Failed to create validation report from file: {e}"
+            ) from e
 
 
 class MMLUEvaluator:
