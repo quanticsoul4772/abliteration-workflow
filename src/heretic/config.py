@@ -524,7 +524,7 @@ class Settings(BaseSettings):
 
     # Phase 4 Next-Level Improvement: Concept Cones Clustering
     use_concept_cones: bool = Field(
-        default=False,
+        default=True,
         description="Enable concept cone extraction for adaptive ablation. Clusters harmful prompts by their residual patterns to extract category-specific refusal directions (e.g., violence vs. fraud vs. self-harm).",
     )
 
@@ -550,7 +550,7 @@ class Settings(BaseSettings):
 
     # Phase 5 Next-Level Improvement: Contrastive Activation Addition (CAA)
     use_caa: bool = Field(
-        default=False,
+        default=True,
         description="Use Contrastive Activation Addition alongside ablation. This removes the refusal direction AND adds a compliance direction for complementary effect.",
     )
 
@@ -565,9 +565,11 @@ class Settings(BaseSettings):
     )
 
     # Phase 6 Next-Level Improvement: Circuit-Level Ablation
+    # NOTE: Disabled by default because it does NOT work with GQA models (Qwen2.5, Llama 3.x, etc.)
+    # This is a technical limitation, not an optional feature - enabling it on GQA models will fail.
     use_circuit_ablation: bool = Field(
         default=False,
-        description="Use circuit-level ablation targeting specific attention heads instead of entire layers. More precise but requires non-GQA models. WARNING: Experimental, not supported for GQA models (Qwen2.5, Llama 3.x).",
+        description="Use circuit-level ablation targeting specific attention heads instead of entire layers. More precise but requires non-GQA models. WARNING: Does NOT work with GQA models (Qwen2.5, Llama 3.x) - will fail if enabled.",
     )
 
     n_refusal_circuits: int = Field(
@@ -603,8 +605,8 @@ class Settings(BaseSettings):
 
     # Sacred Direction Preservation (Capability Protection)
     use_sacred_directions: bool = Field(
-        default=False,
-        description="Orthogonalize refusal direction against capability-encoding 'sacred' directions to preserve model capabilities. Uses MMLU or custom benchmark prompts to extract directions that encode important capabilities. Experimental feature.",
+        default=True,
+        description="Orthogonalize refusal direction against capability-encoding 'sacred' directions to preserve model capabilities. Uses MMLU or custom benchmark prompts to extract directions that encode important capabilities.",
     )
 
     n_sacred_directions: int = Field(

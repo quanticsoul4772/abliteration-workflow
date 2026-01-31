@@ -391,10 +391,12 @@ class MMLUEvaluator:
                 answer = item["answer"]
                 if isinstance(answer, int):
                     answer = MMLU_INDEX_TO_LETTER[answer]
+                
+                # The cais/mmlu dataset has 'choices' as a list, not separate A/B/C/D columns
                 examples.append(
                     {
                         "question": item["question"],
-                        "choices": [item["A"], item["B"], item["C"], item["D"]],
+                        "choices": item["choices"],
                         "answer": answer,
                     }
                 )
