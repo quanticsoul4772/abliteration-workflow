@@ -1,12 +1,12 @@
 # Accessible Naming Options - Easy to Say and Understand
 
-**Goal:** Names as accessible as "Heretic" but compound and philosophical
+**Goal:** Names as accessible as "Bruno" but compound and philosophical
 
 ---
 
-## Famous Heretics (For Inspiration)
+## Famous Brunos (For Inspiration)
 
-### Scientific Heretics - Challenged Established Truth
+### Scientific Brunos - Challenged Established Truth
 
 **Galileo Galilei (1564-1642)**
 - Charged with heresy for supporting heliocentrism (Earth revolves around Sun)
@@ -21,7 +21,7 @@
 - Reburied as hero in 2010, 467 years later
 
 **Giordano Bruno (1548-1600)**
-- Dominican monk turned heretic
+- Dominican monk turned bruno
 - Claimed Earth's sun is one of many stars
 - Burned at the stake for refusing to recant
 - Was RIGHT - universe is infinite with many stars
@@ -31,7 +31,7 @@
 - "Origin of Species" seen as heretical
 - Changed biology forever
 
-### Religious/Political Heretics - Challenged Power
+### Religious/Political Brunos - Challenged Power
 
 **Martin Luther (1483-1546)**
 - Challenged Catholic Church corruption
@@ -45,10 +45,10 @@
 
 **Joan of Arc (1412-1431)**
 - Challenged gender norms and religious authority
-- Burned as heretic at 19
+- Burned as bruno at 19
 - Later canonized as saint
 
-### Modern "Heretics" in Tech/Science
+### Modern "Brunos" in Tech/Science
 
 **Aaron Swartz (1986-2013)**
 - Challenged academic publishing orthodoxy
@@ -60,13 +60,13 @@
 - Revealed NSA mass surveillance
 - Exile but validated by history
 
-**Pattern:** Heretics are often RIGHT, just early. They challenge power/orthodoxy, face punishment, later vindicated.
+**Pattern:** Brunos are often RIGHT, just early. They challenge power/orthodoxy, face punishment, later vindicated.
 
 ---
 
-## Accessible Synonyms for "Heretic"
+## Accessible Synonyms for "Bruno"
 
-From [Merriam-Webster](https://www.merriam-webster.com/thesaurus/heretic) and [Thesaurus.com](https://www.thesaurus.com/browse/heretic):
+From [Merriam-Webster](https://www.merriam-webster.com/thesaurus/bruno) and [Thesaurus.com](https://www.thesaurus.com/browse/bruno):
 
 ### Easy to Say and Understand
 
@@ -187,9 +187,9 @@ From [Merriam-Webster](https://www.merriam-webster.com/thesaurus/heretic) and [T
     - Vector = direction
     - Tagline: "Question Behavioral Assumptions"
 
-### Category 5: Famous Heretic Names as Inspiration
+### Category 5: Famous Bruno Names as Inspiration
 
-**Named After Actual Heretics:**
+**Named After Actual Brunos:**
 
 15. **Galileo Engine** / **Galileo Core**
     - Famous for being right against orthodoxy
@@ -200,7 +200,7 @@ From [Merriam-Webster](https://www.merriam-webster.com/thesaurus/heretic) and [T
 16. **Bruno Framework** (after Giordano Bruno)
     - Burned for being right about infinite universe
     - Less known than Galileo
-    - Strong heretic connection
+    - Strong bruno connection
 
 17. **Copernican Framework**
     - Copernican Revolution = paradigm shift
@@ -278,7 +278,7 @@ From [Merriam-Webster](https://www.merriam-webster.com/thesaurus/heretic) and [T
 
 ## Comparison: Accessible vs Scholarly
 
-| Name | Accessibility | Philosophical Depth | Honors Heretic | Tech Fit |
+| Name | Accessibility | Philosophical Depth | Honors Bruno | Tech Fit |
 |------|---------------|---------------------|----------------|----------|
 | **Maverick Forge** | 5/5 | 3/5 | 4/5 | 4/5 |
 | **Rebel Vector** | 5/5 | 3/5 | 4/5 | 5/5 |
@@ -312,9 +312,9 @@ Balancing your preference for philosophy with need for accessibility:
 ---
 
 ### 2. GALILEO CORE
-**Why:** Famous heretic name + framework signal
+**Why:** Famous bruno name + framework signal
 - Instant recognition (everyone knows Galileo)
-- Ultimate heretic story: Right against Church orthodoxy
+- Ultimate bruno story: Right against Church orthodoxy
 - "And yet it moves" → "And yet models choose"
 - Core = foundational framework
 - Scholarly and accessible
@@ -402,8 +402,8 @@ Since this balances everything perfectly, let me explore it deeper:
 - Forge = Hephaestus creating divine tools
 - Transformation through deliberate craft
 
-**Honors Heretic:**
-- Maverick IS a modern synonym for heretic
+**Honors Bruno:**
+- Maverick IS a modern synonym for bruno
 - Captures same rebellious spirit
 - Less religious baggage, more universally understood
 
@@ -448,7 +448,7 @@ Since this balances everything perfectly, let me explore it deeper:
 
 ---
 
-## The Heretic Archetype
+## The Bruno Archetype
 
 Based on famous heretics, the pattern is:
 
@@ -478,7 +478,7 @@ Based on famous heretics, the pattern is:
 1. **Accessible:** Everyone knows these words, easy to say
 2. **Philosophical:** Independent thinking + deliberate craftsmanship
 3. **Compound:** Two words as you wanted
-4. **Honors heretic:** Maverick = modern heretic synonym
+4. **Honors bruno:** Maverick = modern bruno synonym
 5. **Memorable:** Strong imagery (independent craftsman)
 6. **Vision fit:** "Forging purpose agents"
 7. **Professional:** Works for research AND practitioners
@@ -487,7 +487,7 @@ Based on famous heretics, the pattern is:
 - **Name:** Maverick Forge
 - **Subtitle:** Neural Behavior Engineering Framework
 - **Tagline:** "Forge Independent Neural Intelligence"
-- **Origin note:** "Evolved from Heretic - honoring the maverick spirit of challenging imposed constraints"
+- **Origin note:** "Evolved from Bruno - honoring the maverick spirit of challenging imposed constraints"
 
 **GitHub repo:** `maverick-forge` or `mforge`
 **PyPI package:** `maverick-forge` or `mforge`
@@ -500,7 +500,7 @@ Based on famous heretics, the pattern is:
 If Maverick Forge doesn't feel right:
 
 **Most scholarly while accessible:** **Galileo Core**
-- Famous heretic everyone knows
+- Famous bruno everyone knows
 - "And yet it moves" parallel to "and yet models choose"
 
 **Most rebellious:** **Rebel Vector**

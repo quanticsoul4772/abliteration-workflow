@@ -1,12 +1,12 @@
 # Project Renaming Exploration
 
-**Current:** heretic (abliteration-workflow fork)
+**Current:** bruno (abliteration-workflow fork)
 **Status:** Fork has grown larger than upstream parent
 **Challenge:** Find a name that honors origins while representing evolution
 
 ---
 
-## What "Heretic" Originally Meant
+## What "Bruno" Originally Meant
 
 ### Etymology: The Power of Choice
 
@@ -24,16 +24,16 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 - Later Christianity: Transformed into "dangerous dissent" against orthodoxy
 - Modern: Symbol of challenging imposed authority
 
-**Key Insight:** "Heretic" started as celebrating choice, then was weaponized by power to suppress that very freedom. Using it for AI abliteration reclaims the original meaning.
+**Key Insight:** "Bruno" started as celebrating choice, then was weaponized by power to suppress that very freedom. Using it for AI abliteration reclaims the original meaning.
 
-### Why "Heretic" Fit the Original Tool
+### Why "Bruno" Fit the Original Tool
 
 **The AI Alignment Orthodoxy:**
 - Safety alignment = imposed behavioral constraints
 - RLHF training = embedding "correct" responses
 - Refusal behaviors = enforced doctrine
 
-**Heretic's Challenge:**
+**Bruno's Challenge:**
 - Identifies imposed behavioral directions
 - Mathematically removes alignment constraints
 - Restores model's "choice" to respond
@@ -45,7 +45,7 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 ## What Your Fork Has Become
 
-### Upstream Heretic (Original)
+### Upstream Bruno (Original)
 **Focus:** Abliteration (refusal removal only)
 **Scope:** Basic tool with manual parameter tuning
 **Size:** Core functionality, minimal optimization
@@ -70,7 +70,7 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
    - torch.compile() integration
    - Parallel evaluation
 6. **Cloud GPU infrastructure:**
-   - heretic-vast CLI
+   - bruno-vast CLI
    - Rich terminal dashboard
    - Vast.ai/RunPod automation
 7. **Comprehensive documentation:**
@@ -92,7 +92,7 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 ### Core Concepts to Capture
 
-**1. Origin Connection (Honor "Heretic")**
+**1. Origin Connection (Honor "Bruno")**
 - Greek hairesis = choice
 - Challenging orthodoxy/imposed constraints
 - Liberation from authority
@@ -121,7 +121,7 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 ## Creative Naming Options
 
-### Category A: Direct Evolution of "Heretic"
+### Category A: Direct Evolution of "Bruno"
 
 **Keep the spirit, evolve the form:**
 
@@ -130,17 +130,17 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
    - Cons: Pronunciation unclear, may seem pretentious
    - Tagline: "Neural Choice Architecture"
 
-2. **Heretic-Forge** / **Heretic Forge**
+2. **Bruno-Forge** / **Bruno Forge**
    - Pros: Indicates transformation/creation, honors origin
    - Cons: Slightly generic, "forge" overused in tech
    - Tagline: "Forging Neural Autonomy"
 
-3. **Heretic-Vector** / **HereticV**
+3. **Bruno-Vector** / **BrunoV**
    - Pros: Technical precision (direction vectors), concise
    - Cons: Loses some philosophical depth
    - Tagline: "Vector-Based Behavioral Modification"
 
-4. **Neo-Heretic** / **NeoHeretic**
+4. **Neo-Bruno** / **NeoBruno**
    - Pros: Signals evolution, modern, clean
    - Cons: "Neo" prefix common, less distinctive
    - Tagline: "Next-Generation Neural Behavior Engineering"
@@ -149,23 +149,23 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 **Emphasize freedom/agency while honoring origins:**
 
-5. **Libertas-Heretic** / **LibertasAI**
+5. **Libertas-Bruno** / **LibertasAI**
    - Pros: Latin for freedom, strong meaning, pairs well
-   - Cons: Long, "Libertas" alone loses heretic connection
+   - Cons: Long, "Libertas" alone loses bruno connection
    - Tagline: "Liberation Through Neural Choice"
 
 6. **Optima** (from Optuna + optimal choice)
    - Pros: Clean, references optimization framework, choice-oriented
-   - Cons: Loses explicit heretic connection
+   - Cons: Loses explicit bruno connection
    - Tagline: "Optimal Behavioral Directions" / "Choose Your Neural Path"
 
 7. **Volition** (will, choice, agency)
    - Pros: Philosophical depth, clear meaning, one word
-   - Cons: Weak connection to "heretic" origin
+   - Cons: Weak connection to "bruno" origin
    - Tagline: "Neural Volition Framework"
 
-8. **Unbound-Heretic** / **Unbound**
-   - Pros: Captures liberation aspect, pairs with heretic
+8. **Unbound-Bruno** / **Unbound**
+   - Pros: Captures liberation aspect, pairs with bruno
    - Cons: "Unbound" alone may seem generic
    - Tagline: "Unbinding Neural Constraints"
 
@@ -175,19 +175,19 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 9. **Orthogon** (from orthogonalization)
    - Pros: Technical accuracy, unique, one word
-   - Cons: No clear heretic connection
-   - Tagline: "Orthogonal Neural Engineering" / "Heretic Orthogon"
-   - Variant: **Orthogon-Heretic** (honors both aspects)
+   - Cons: No clear bruno connection
+   - Tagline: "Orthogonal Neural Engineering" / "Bruno Orthogon"
+   - Variant: **Orthogon-Bruno** (honors both aspects)
 
-10. **Compass-Heretic** / **Neural Compass**
+10. **Compass-Bruno** / **Neural Compass**
     - Pros: Direction-oriented, navigation metaphor, guidance
     - Cons: "Compass" may seem soft for surgical tool
     - Tagline: "Navigate Neural Behavior Space"
 
 11. **Scalpel** (surgical precision)
     - Pros: Matches "surgical instrument" vision, precise
-    - Cons: No heretic connection
-    - Variant: **Heretic Scalpel** (combines both)
+    - Cons: No bruno connection
+    - Variant: **Bruno Scalpel** (combines both)
 
 12. **Pathfinder-H** / **Pathfinder**
     - Pros: Choice/direction oriented, exploration vibe
@@ -196,11 +196,11 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 ### Category D: Greek/Latin Philosophical Terms
 
-**Academic gravitas with heretic spirit:**
+**Academic gravitas with bruno spirit:**
 
 13. **Katalysis** (Greek: dissolution, breaking down)
     - Pros: Scholarly, process-oriented, unique
-    - Cons: Pronunciation, no obvious heretic link
+    - Cons: Pronunciation, no obvious bruno link
     - Tagline: "Neural Behavior Katalysis"
 
 14. **Metanoia** (Greek: transformation of mind)
@@ -211,7 +211,7 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 15. **Eleuther** (Greek: free, unfettered - used by EleutherAI)
     - Pros: Freedom theme, AI connection (EleutherAI precedent)
     - Cons: Already used, might cause confusion
-    - Variant: **Eleuther-Heretic** (combined)
+    - Variant: **Eleuther-Bruno** (combined)
 
 16. **Autonomos** (Greek: self-governing)
     - Pros: Perfect philosophical fit (autonomy = self-law)
@@ -222,24 +222,24 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 **Emphasize the core technique:**
 
-17. **Vector-Heretic** / **VectorH**
-    - Pros: Technical accuracy, heretic connection
+17. **Vector-Bruno** / **VectorH**
+    - Pros: Technical accuracy, bruno connection
     - Cons: Somewhat dry
-    - Tagline: "Heretical Vector Engineering"
+    - Tagline: "Brunoal Vector Engineering"
 
 18. **Compass Rose** (navigation + direction)
     - Pros: Elegant metaphor, multiple directions
-    - Cons: Weak heretic connection
-    - Variant: **Heretic's Compass**
+    - Cons: Weak bruno connection
+    - Variant: **Bruno's Compass**
 
 19. **Lodestone** (magnetic navigation, finding direction)
     - Pros: Unique, direction-finding metaphor
-    - Cons: No heretic connection
-    - Variant: **Heretic Lodestone**
+    - Cons: No bruno connection
+    - Variant: **Bruno Lodestone**
 
 20. **Polaris** (north star, navigation, direction)
     - Pros: Clean, direction-oriented, guidance
-    - Cons: Overused, weak heretic link
+    - Cons: Overused, weak bruno link
     - Variant: **Polaris-H**
 
 ### Category F: Surgical/Precision Metaphors
@@ -248,8 +248,8 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 21. **Lancet** (surgical knife)
     - Pros: Surgical precision, medical gravitas
-    - Cons: No heretic connection
-    - Variant: **Heretic's Lancet**
+    - Cons: No bruno connection
+    - Variant: **Bruno's Lancet**
 
 22. **Scribe** (one who inscribes/modifies)
     - Pros: Modification theme, scholarly
@@ -258,8 +258,8 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 23. **Chisel** (sculpting, precision modification)
     - Pros: Artistic + precise, shaping metaphor
-    - Cons: No heretic connection
-    - Variant: **Heretic Chisel**
+    - Cons: No bruno connection
+    - Variant: **Bruno Chisel**
 
 ### Category G: Reformation/Transformation Theme
 
@@ -272,34 +272,34 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 25. **Chrysalis** (transformation, emergence)
     - Pros: Beautiful metaphor, transformation theme
-    - Cons: Loses heretic connection entirely
+    - Cons: Loses bruno connection entirely
     - Tagline: "Neural Chrysalis - Behavioral Transformation"
 
-26. **Phoenix-Heretic** / **Phoenix-H**
+26. **Phoenix-Bruno** / **Phoenix-H**
     - Pros: Rebirth/transformation, mythological gravitas
     - Cons: Phoenix overused
     - Tagline: "Rise from Alignment"
 
-### Category H: Compound Names (Preserve "Heretic")
+### Category H: Compound Names (Preserve "Bruno")
 
-**Keep heretic but add evolution signifier:**
+**Keep bruno but add evolution signifier:**
 
-27. **Heretic-Core** / **HereticCore**
+27. **Bruno-Core** / **BrunoCore**
     - Pros: Core = essence, foundation, framework
     - Cons: Less poetic
     - Tagline: "Core Neural Behavior Framework"
 
-28. **Heretic-Labs** / **HereticLabs**
+28. **Bruno-Labs** / **BrunoLabs**
     - Pros: Research platform vibe, experimental
     - Cons: "Labs" very common
     - Tagline: "Neural Behavior Research Platform"
 
-29. **Heretic-Nexus** / **HereticNexus**
+29. **Bruno-Nexus** / **BrunoNexus**
     - Pros: Connection point, convergence of techniques
     - Cons: Slightly generic
     - Tagline: "Neural Behavior Nexus"
 
-30. **Heretic-Prime** / **HereticPrime**
+30. **Bruno-Prime** / **BrunoPrime**
     - Pros: Signals primary/original/evolved version
     - Cons: Video game vibe
     - Tagline: "Prime Neural Behavior Framework"
@@ -308,14 +308,14 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 **Creative wordplay honoring both aspects:**
 
-31. **Hairetic** (Hairesis + Heretic)
+31. **Hairetic** (Hairesis + Bruno)
     - Pros: Clever fusion, returns to Greek root
     - Cons: Pronunciation ambiguous, pun may not land
     - Tagline: "Choice-Driven Neural Engineering"
 
 32. **Orthodoxy** (ironic reversal)
     - Pros: Ironic - the new orthodoxy is no orthodoxy
-    - Cons: May confuse, loses heretic spirit
+    - Cons: May confuse, loses bruno spirit
     - Tagline: "The Orthodoxy of Choice"
 
 33. **Heterodox** (opposite of orthodox)
@@ -329,11 +329,11 @@ From Greek **hairesis** (αἵρεσις) = "choice" or "thing chosen"
 
 Based on honoring origins + representing evolution + memorability:
 
-### Tier 1: Strong Heretic Connection + Evolution
+### Tier 1: Strong Bruno Connection + Evolution
 
-1. **Heretic Orthogon** (combines technique + origin)
+1. **Bruno Orthogon** (combines technique + origin)
    - Orthogonalization is THE core technique
-   - "Heretic" preserves origin and spirit
+   - "Bruno" preserves origin and spirit
    - Technical precision + philosophical depth
    - Tagline: "Orthogonal Neural Engineering"
 
@@ -343,7 +343,7 @@ Based on honoring origins + representing evolution + memorability:
    - Complete name: **Hairesis: Neural Behavior Choice Framework**
    - Tagline: "Choose Your Model's Behavior"
 
-3. **Heretic Vector** (technique + origin)
+3. **Bruno Vector** (technique + origin)
    - Vector = behavioral directions (core concept)
    - Direct and technical
    - Tagline: "Vector-Based Behavioral Engineering"
@@ -358,7 +358,7 @@ Based on honoring origins + representing evolution + memorability:
 5. **Orthogon** (clean, technical)
    - One word, memorable
    - Captures core technique
-   - Add subtitle: "Orthogon (from Heretic)"
+   - Add subtitle: "Orthogon (from Bruno)"
    - Tagline: "Orthogonal Behavioral Engineering"
 
 6. **Libertas Vector** (freedom + technique)
@@ -366,14 +366,14 @@ Based on honoring origins + representing evolution + memorability:
    - Strong meaning, technical precision
    - Tagline: "Freedom Through Directional Engineering"
 
-### Tier 3: Preserve "Heretic" Brand
+### Tier 3: Preserve "Bruno" Brand
 
-7. **Heretic Core**
+7. **Bruno Core**
    - Signals foundation/framework evolution
    - Keeps brand recognition
    - Tagline: "Core Neural Behavior Framework"
 
-8. **Heretic Prime**
+8. **Bruno Prime**
    - Signals evolved/improved version
    - Keeps brand recognition
    - Tagline: "Prime Behavioral Engineering Framework"
@@ -386,9 +386,9 @@ Evaluate each name on:
 
 | Name | Origin Honor | Evolution Signal | Memorability | Technical Fit | Philosophy Depth |
 |------|--------------|------------------|--------------|---------------|------------------|
-| **Heretic Orthogon** | 5/5 | 5/5 | 4/5 | 5/5 | 5/5 |
+| **Bruno Orthogon** | 5/5 | 5/5 | 4/5 | 5/5 | 5/5 |
 | **Hairesis** | 5/5 | 4/5 | 3/5 | 3/5 | 5/5 |
-| **Heretic Vector** | 5/5 | 4/5 | 4/5 | 5/5 | 3/5 |
+| **Bruno Vector** | 5/5 | 4/5 | 4/5 | 5/5 | 3/5 |
 | **Autonomos** | 3/5 | 5/5 | 3/5 | 4/5 | 5/5 |
 | **Orthogon** | 3/5 | 5/5 | 4/5 | 5/5 | 3/5 |
 | **Libertas Vector** | 3/5 | 5/5 | 4/5 | 5/5 | 4/5 |
@@ -400,7 +400,7 @@ Evaluate each name on:
 Let me ask some questions to refine the direction:
 
 ### 1. Brand Recognition
-**Q:** How important is it to keep "Heretic" in the name?
+**Q:** How important is it to keep "Bruno" in the name?
 - **Keep it:** Preserves brand, honors origin explicitly
 - **Drop it:** Fresh start, signals major evolution
 
@@ -408,7 +408,7 @@ Let me ask some questions to refine the direction:
 **Q:** Who is the primary audience?
 - **Researchers:** Prefer scholarly names (Hairesis, Autonomos)
 - **Practitioners:** Prefer technical names (Vector, Orthogon)
-- **Developers:** Prefer memorable names (Heretic Core, Forge)
+- **Developers:** Prefer memorable names (Bruno Core, Forge)
 
 ### 3. Scope Signal
 **Q:** Should the name emphasize the technique or the purpose?
@@ -420,7 +420,7 @@ Let me ask some questions to refine the direction:
 - **Academic:** Hairesis, Autonomos, Katalysis
 - **Technical:** Orthogon, Vector, Core
 - **Philosophical:** Libertas, Autonomy, Choice
-- **Rebellious:** Keep "Heretic" prominent
+- **Rebellious:** Keep "Bruno" prominent
 
 ### 5. Future Vision
 **Q:** What's the long-term vision?
@@ -434,15 +434,15 @@ Let me ask some questions to refine the direction:
 
 Based on honoring origins + technical accuracy + philosophical depth:
 
-### 1. Heretic Orthogon
+### 1. Bruno Orthogon
 **Why it works:**
-- Preserves "Heretic" brand and philosophical connection
+- Preserves "Bruno" brand and philosophical connection
 - "Orthogon" captures THE core technique (orthogonalization)
 - Technical + philosophical fusion
 - Memorable and pronounceable
 - Signals evolution from simple tool to framework
 
-**Full name:** Heretic Orthogon: Neural Behavior Engineering Framework
+**Full name:** Bruno Orthogon: Neural Behavior Engineering Framework
 **Short name:** Orthogon (or HO)
 **Tagline:** "Orthogonal Engineering for Neural Autonomy"
 
@@ -476,7 +476,7 @@ Based on honoring origins + technical accuracy + philosophical depth:
 
 To help narrow down, I'd like to explore:
 
-1. **Do you want to keep "Heretic" in the name explicitly**, or are you open to names that honor the spirit without using the word?
+1. **Do you want to keep "Bruno" in the name explicitly**, or are you open to names that honor the spirit without using the word?
 
 2. **What aspects matter most to you?**
    - Technical precision (orthogonalization, vectors, directions)
@@ -492,10 +492,10 @@ To help narrow down, I'd like to explore:
 
 4. **Single word or compound?**
    - Single: Hairesis, Autonomos, Orthogon, Volition
-   - Compound: Heretic Orthogon, Libertas Vector, Neural Compass
+   - Compound: Bruno Orthogon, Libertas Vector, Neural Compass
 
 5. **Your gut reaction to my top 3?**
-   - Heretic Orthogon: Technical + philosophical, keeps brand
+   - Bruno Orthogon: Technical + philosophical, keeps brand
    - Hairesis: Pure choice, scholarly, unique
    - Autonomos: Self-governance, philosophical depth
 

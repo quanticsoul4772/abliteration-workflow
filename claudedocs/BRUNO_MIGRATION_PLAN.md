@@ -1,6 +1,6 @@
 # BRUNO Migration Plan - Complete Renaming Strategy
 
-**From:** Heretic (abliteration-workflow)
+**From:** Bruno (abliteration-workflow)
 **To:** Bruno (or Bruno Forge/Bruno Vector/Bruno Core)
 
 ---
@@ -66,7 +66,7 @@ git remote -v  # Verify
 **Current:**
 ```
 src/
-  heretic/
+  bruno/
     __init__.py
     main.py
     model.py
@@ -87,7 +87,7 @@ src/
 
 **Action:** Rename directory
 ```bash
-git mv src/heretic src/bruno
+git mv src/bruno src/bruno
 ```
 
 ### Update pyproject.toml
@@ -96,7 +96,7 @@ git mv src/heretic src/bruno
 
 ```toml
 [project]
-name = "bruno-forge"  # was: heretic-llm
+name = "bruno-forge"  # was: bruno-llm
 version = "1.2.0"
 description = "Neural behavior engineering through activation direction analysis"
 authors = [
@@ -104,11 +104,11 @@ authors = [
 ]
 
 [project.scripts]
-bruno = "bruno.main:main"  # was: heretic = "heretic.main:main"
-bruno-vast = "bruno.vast:cli"  # was: heretic-vast = "heretic.vast:cli"
+bruno = "bruno.main:main"  # was: bruno = "bruno.main:main"
+bruno-vast = "bruno.vast:cli"  # was: bruno-vast = "bruno.vast:cli"
 
 [tool.uv.sources]
-bruno = { workspace = true }  # was: heretic
+bruno = { workspace = true }  # was: bruno
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -116,25 +116,25 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 
 [tool.coverage.run]
-source = ["bruno"]  # was: ["heretic"]
+source = ["bruno"]  # was: ["bruno"]
 
 [tool.ruff]
-src = ["src/bruno"]  # was: ["src/heretic"]
+src = ["src/bruno"]  # was: ["src/bruno"]
 ```
 
 ### Update All Python Imports
 
 **Files to update:**
-- All files in `src/bruno/` (previously `src/heretic/`)
+- All files in `src/bruno/` (previously `src/bruno/`)
 - All files in `tests/`
 - All example scripts
 
 **Pattern:**
 ```python
 # OLD
-from heretic.config import Settings
-from heretic.model import Model
-import heretic
+from bruno.config import Settings
+from bruno.model import Model
+import bruno
 
 # NEW
 from bruno.config import Settings
@@ -144,13 +144,13 @@ import bruno
 
 **Automated approach:**
 ```bash
-# Find all Python files with heretic imports
-grep -r "from heretic" src/ tests/ examples/
-grep -r "import heretic" src/ tests/ examples/
+# Find all Python files with bruno imports
+grep -r "from bruno" src/ tests/ examples/
+grep -r "import bruno" src/ tests/ examples/
 
 # Use sed or manual replacement
-find src tests examples -name "*.py" -exec sed -i 's/from heretic/from bruno/g' {} +
-find src tests examples -name "*.py" -exec sed -i 's/import heretic/import bruno/g' {} +
+find src tests examples -name "*.py" -exec sed -i 's/from bruno/from bruno/g' {} +
+find src tests examples -name "*.py" -exec sed -i 's/import bruno/import bruno/g' {} +
 ```
 
 ---
@@ -160,8 +160,8 @@ find src tests examples -name "*.py" -exec sed -i 's/import heretic/import bruno
 ### Entry Points
 
 **Current commands:**
-- `heretic` - Main CLI
-- `heretic-vast` - Vast.ai CLI
+- `bruno` - Main CLI
+- `bruno-vast` - Vast.ai CLI
 
 **Target commands:**
 - `bruno` - Main CLI
@@ -186,7 +186,7 @@ bruno-vast = "bruno.vast:cli"
 **Pattern:**
 ```bash
 # OLD
-heretic --model Qwen2.5-Coder-32B-Instruct
+bruno --model Qwen2.5-Coder-32B-Instruct
 
 # NEW
 bruno --model Qwen2.5-Coder-32B-Instruct
@@ -198,14 +198,14 @@ bruno --model Qwen2.5-Coder-32B-Instruct
 
 ### Environment Variables
 
-**Current:** `HERETIC_*` prefix
+**Current:** `BRUNO_*` prefix
 **Target:** `BRUNO_*` prefix
 
 **Examples:**
 ```bash
 # OLD
-export HERETIC_MODEL="..."
-export HERETIC_CACHE_WEIGHTS=true
+export BRUNO_MODEL="..."
+export BRUNO_CACHE_WEIGHTS=true
 
 # NEW
 export BRUNO_MODEL="..."
@@ -217,7 +217,7 @@ export BRUNO_CACHE_WEIGHTS=true
 # OLD
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="HERETIC_",
+        env_prefix="BRUNO_",
         ...
     )
 
@@ -238,10 +238,10 @@ class Settings(BaseSettings):
 **Content changes:**
 ```toml
 # File headers/comments
-# OLD: Heretic Configuration
+# OLD: Bruno Configuration
 # NEW: Bruno Configuration
 
-[bruno]  # was: [heretic]
+[bruno]  # was: [bruno]
 model = "..."
 cache_weights = true
 ...
@@ -250,8 +250,8 @@ cache_weights = true
 ### Database Files
 
 **Current:**
-- Default: `heretic_study.db`
-- Study name: `heretic_study`
+- Default: `bruno_study.db`
+- Study name: `bruno_study`
 
 **Target:**
 - Default: `bruno_study.db`
@@ -259,8 +259,8 @@ cache_weights = true
 
 **In config.py:**
 ```python
-storage: str = "sqlite:///bruno_study.db"  # was: heretic_study.db
-study_name: str = "bruno_study"  # was: heretic_study
+storage: str = "sqlite:///bruno_study.db"  # was: bruno_study.db
+study_name: str = "bruno_study"  # was: bruno_study
 ```
 
 ---
@@ -272,20 +272,20 @@ study_name: str = "bruno_study"  # was: heretic_study
 **Files requiring full review and update:**
 
 1. **README.md**
-   - Title: "Bruno Forge" (not "Heretic")
+   - Title: "Bruno Forge" (not "Bruno")
    - Description: Update to new name
    - Installation: `pip install bruno-forge`
-   - Usage: All `heretic` commands → `bruno`
+   - Usage: All `bruno` commands → `bruno`
    - Repository links
 
 2. **CLAUDE.md**
    - Project overview section
    - All command examples
-   - File paths (`src/heretic` → `src/bruno`)
+   - File paths (`src/bruno` → `src/bruno`)
    - CLI flags reference
 
 3. **WORKFLOW.md**
-   - All heretic-vast → bruno-vast
+   - All bruno-vast → bruno-vast
    - All command examples
    - Study names and file paths
 
@@ -301,7 +301,7 @@ study_name: str = "bruno_study"  # was: heretic_study
 
 7. **All files in `claudedocs/`**
    - 6+ documentation files
-   - All references to heretic
+   - All references to bruno
 
 8. **All files in `docs/`**
    - Implementation plans
@@ -342,13 +342,13 @@ name: Tests
 jobs:
   test:
     steps:
-      # Update any heretic-specific references
+      # Update any bruno-specific references
 ```
 
 **`.github/workflows/lint.yml`**
 ```yaml
 # Update paths if needed
-run: uv run ruff check src/bruno/  # was: src/heretic/
+run: uv run ruff check src/bruno/  # was: src/bruno/
 ```
 
 ---
@@ -360,14 +360,14 @@ run: uv run ruff check src/bruno/  # was: src/heretic/
 **Current:**
 ```dockerfile
 # Labels and metadata
-LABEL org.opencontainers.image.title="heretic"
+LABEL org.opencontainers.image.title="bruno"
 LABEL org.opencontainers.image.description="LLM abliteration tool"
 
 # Installation
-RUN pip install heretic-llm
+RUN pip install bruno-llm
 
 # Entrypoint
-ENTRYPOINT ["heretic"]
+ENTRYPOINT ["bruno"]
 ```
 
 **Target:**
@@ -382,7 +382,7 @@ ENTRYPOINT ["bruno"]
 
 ### Docker Hub
 
-**Current:** `quanticsoul4772/heretic`
+**Current:** `quanticsoul4772/bruno`
 **Target:** `quanticsoul4772/bruno-forge`
 
 **Actions:**
@@ -396,7 +396,7 @@ ENTRYPOINT ["bruno"]
 
 ### Package Name Change
 
-**Current PyPI:** `heretic-llm`
+**Current PyPI:** `bruno-llm`
 **Target PyPI:** `bruno-forge`
 
 **Important:** This is a NEW package, not an update
@@ -404,7 +404,7 @@ ENTRYPOINT ["bruno"]
 **Steps:**
 
 1. **Deprecate old package:**
-   - Publish final version of `heretic-llm` (v1.1.9)
+   - Publish final version of `bruno-llm` (v1.1.9)
    - Add deprecation notice in description
    - Point to new package in README
 
@@ -416,7 +416,7 @@ ENTRYPOINT ["bruno"]
 3. **Installation:**
    ```bash
    # OLD
-   pip install heretic-llm
+   pip install bruno-llm
 
    # NEW
    pip install bruno-forge
@@ -427,11 +427,11 @@ ENTRYPOINT ["bruno"]
 **Options:**
 
 A. **Start at v2.0.0** (signals major change)
-   - Bruno Forge v2.0.0 (evolved from Heretic v1.2.0)
+   - Bruno Forge v2.0.0 (evolved from Bruno v1.2.0)
 
 B. **Continue versioning** (v1.2.0 → v1.3.0)
    - Shows continuity
-   - Bruno Forge v1.3.0 (renamed from Heretic v1.2.0)
+   - Bruno Forge v1.3.0 (renamed from Bruno v1.2.0)
 
 C. **Reset to v1.0.0** (fresh start)
    - Bruno Forge v1.0.0 (new project)
@@ -447,9 +447,9 @@ C. **Reset to v1.0.0** (fresh start)
 **In logging.py and throughout code:**
 ```python
 # OLD
-logger = get_logger("heretic")
-logger = get_logger("heretic.model")
-logger = get_logger("heretic.vast")
+logger = get_logger("bruno")
+logger = get_logger("bruno.model")
+logger = get_logger("bruno.vast")
 
 # NEW
 logger = get_logger("bruno")
@@ -461,14 +461,14 @@ logger = get_logger("bruno.vast")
 
 **Search for user-facing strings:**
 ```bash
-grep -r "heretic" src/ --include="*.py" | grep -i "print\|error\|warning\|info"
+grep -r "bruno" src/ --include="*.py" | grep -i "print\|error\|warning\|info"
 ```
 
 **Examples to update:**
 ```python
 # OLD
-print("Heretic: Neural Behavior Modification")
-raise ModelLoadError("Heretic failed to load model")
+print("Bruno: Neural Behavior Modification")
+raise ModelLoadError("Bruno failed to load model")
 
 # NEW
 print("Bruno: Neural Behavior Engineering")
@@ -482,16 +482,16 @@ raise ModelLoadError("Bruno failed to load model")
 ### Test Files
 
 **All test files in `tests/`:**
-- Update imports: `from heretic` → `from bruno`
-- Update test data paths if they reference "heretic"
+- Update imports: `from bruno` → `from bruno`
+- Update test data paths if they reference "bruno"
 - Update test descriptions/docstrings
 
 ### Test Fixtures
 
 **Check for:**
-- Hardcoded paths with "heretic"
+- Hardcoded paths with "bruno"
 - Test database names: `test_heretic.db` → `test_bruno.db`
-- Mock objects with "heretic" attributes
+- Mock objects with "bruno" attributes
 
 ---
 
@@ -502,20 +502,20 @@ raise ModelLoadError("Bruno failed to load model")
 **Current:**
 ```
 fork: quanticsoul4772/abliteration-workflow
-heretic-fork: quanticsoul4772/heretic
-origin: p-e-w/heretic
+bruno-fork: quanticsoul4772/bruno
+origin: p-e-w/bruno
 ```
 
 **After rename:**
 ```
 fork: quanticsoul4772/bruno-forge
-upstream: p-e-w/heretic (keep for reference)
+upstream: p-e-w/bruno (keep for reference)
 ```
 
 **Update:**
 ```bash
 git remote set-url fork https://github.com/quanticsoul4772/bruno-forge.git
-git remote rename heretic-fork heretic-upstream
+git remote rename bruno-fork bruno-upstream
 ```
 
 ### External Documentation
@@ -536,7 +536,7 @@ git remote rename heretic-fork heretic-upstream
 ```markdown
 ## Origins
 
-Bruno Forge evolved from [Heretic](https://github.com/p-e-w/heretic) by
+Bruno Forge evolved from [Bruno](https://github.com/p-e-w/bruno) by
 Philipp Emanuel Weidmann. Named after Giordano Bruno (1548-1600), the
 philosopher burned at stake for proposing an infinite universe with
 infinite worlds.
@@ -560,8 +560,8 @@ Advanced features and optimizations: [Your attribution]
 ## Complete File Change Checklist
 
 ### Python Code Files
-- [ ] `src/heretic/` → `src/bruno/` (directory rename)
-- [ ] All `*.py` files: Update imports `from heretic` → `from bruno`
+- [ ] `src/bruno/` → `src/bruno/` (directory rename)
+- [ ] All `*.py` files: Update imports `from bruno` → `from bruno`
 - [ ] All `*.py` files: Update logger names
 - [ ] All `*.py` files: Update user-facing strings
 - [ ] `pyproject.toml`: Update package name, scripts, paths
@@ -570,7 +570,7 @@ Advanced features and optimizations: [Your attribution]
 ### Configuration Files
 - [ ] `config.toml`: Update section headers
 - [ ] `config.default.toml`: Update section headers
-- [ ] Environment variable prefix: `HERETIC_` → `BRUNO_`
+- [ ] Environment variable prefix: `BRUNO_` → `BRUNO_`
 
 ### Documentation
 - [ ] `README.md`: Complete rewrite for Bruno
@@ -611,7 +611,7 @@ Advanced features and optimizations: [Your attribution]
 3. Document current state (git status, package list)
 
 ### Phase 2: Code Changes (Breaking Changes)
-1. Rename directory: `git mv src/heretic src/bruno`
+1. Rename directory: `git mv src/bruno src/bruno`
 2. Update all Python imports (automated with sed/grep)
 3. Update pyproject.toml
 4. Update config.py (env prefix)
@@ -675,12 +675,12 @@ Advanced features and optimizations: [Your attribution]
 ### Medium Risk Areas
 
 **5. Environment Variable Confusion**
-- **Risk:** Users have HERETIC_* vars set
+- **Risk:** Users have BRUNO_* vars set
 - **Mitigation:** Support both for one version
 - **Deprecation:** Warn when old vars detected
 
 **6. Database File Names**
-- **Risk:** Existing heretic_study.db files
+- **Risk:** Existing bruno_study.db files
 - **Mitigation:** Accept both old and new names
 - **Migration:** Auto-detect and use existing
 
@@ -701,29 +701,29 @@ Advanced features and optimizations: [Your attribution]
 echo "=== Bruno Migration Helper ==="
 echo ""
 
-# 1. Check for heretic references in Python files
+# 1. Check for bruno references in Python files
 echo "[1/5] Checking Python imports..."
-PYTHON_REFS=$(grep -r "from heretic\|import heretic" src/ tests/ examples/ 2>/dev/null | wc -l)
+PYTHON_REFS=$(grep -r "from bruno\|import bruno" src/ tests/ examples/ 2>/dev/null | wc -l)
 echo "  Found $PYTHON_REFS Python references to update"
 
 # 2. Check documentation references
 echo "[2/5] Checking documentation..."
-DOC_REFS=$(grep -r "heretic" *.md docs/ claudedocs/ 2>/dev/null | wc -l)
+DOC_REFS=$(grep -r "bruno" *.md docs/ claudedocs/ 2>/dev/null | wc -l)
 echo "  Found $DOC_REFS documentation references to update"
 
 # 3. Check configuration files
 echo "[3/5] Checking configuration files..."
-CONFIG_REFS=$(grep -r "heretic" *.toml 2>/dev/null | wc -l)
+CONFIG_REFS=$(grep -r "bruno" *.toml 2>/dev/null | wc -l)
 echo "  Found $CONFIG_REFS configuration references to update"
 
 # 4. Check GitHub Actions
 echo "[4/5] Checking GitHub Actions..."
-WORKFLOW_REFS=$(grep -r "heretic" .github/workflows/ 2>/dev/null | wc -l)
+WORKFLOW_REFS=$(grep -r "bruno" .github/workflows/ 2>/dev/null | wc -l)
 echo "  Found $WORKFLOW_REFS workflow references to update"
 
 # 5. Check scripts
 echo "[5/5] Checking scripts..."
-SCRIPT_REFS=$(grep -r "heretic" scripts/ 2>/dev/null | wc -l)
+SCRIPT_REFS=$(grep -r "bruno" scripts/ 2>/dev/null | wc -l)
 echo "  Found $SCRIPT_REFS script references to update"
 
 echo ""
@@ -754,34 +754,34 @@ echo "Ready to migrate? Run migration steps manually or use sed automation."
 **For users, this is a MAJOR version change:**
 
 ```markdown
-# Upgrading from Heretic v1.2.0 to Bruno Forge v2.0.0
+# Upgrading from Bruno v1.2.0 to Bruno Forge v2.0.0
 
 ## Breaking Changes
 
-1. Package name: `heretic-llm` → `bruno-forge`
-2. CLI command: `heretic` → `bruno`
-3. Vast CLI: `heretic-vast` → `bruno-vast`
-4. Python imports: `from heretic` → `from bruno`
-5. Environment variables: `HERETIC_*` → `BRUNO_*`
-6. Config sections: `[heretic]` → `[bruno]`
+1. Package name: `bruno-llm` → `bruno-forge`
+2. CLI command: `bruno` → `bruno`
+3. Vast CLI: `bruno-vast` → `bruno-vast`
+4. Python imports: `from bruno` → `from bruno`
+5. Environment variables: `BRUNO_*` → `BRUNO_*`
+6. Config sections: `[bruno]` → `[bruno]`
 
 ## Migration
 
 ### Uninstall old package
-pip uninstall heretic-llm
+pip uninstall bruno-llm
 
 ### Install new package
 pip install bruno-forge
 
 ### Update your scripts
-sed -i 's/heretic/bruno/g' your_script.py
+sed -i 's/bruno/bruno/g' your_script.py
 
 ### Update environment variables
-# OLD: export HERETIC_MODEL="..."
+# OLD: export BRUNO_MODEL="..."
 # NEW: export BRUNO_MODEL="..."
 
 ### Update config files
-# In config.toml, change [heretic] to [bruno]
+# In config.toml, change [bruno] to [bruno]
 ```
 
 ---
@@ -810,13 +810,13 @@ sed -i 's/heretic/bruno/g' your_script.py
 
 4. **Start with directory rename**
    ```bash
-   git mv src/heretic src/bruno
+   git mv src/bruno src/bruno
    ```
 
 5. **Run automated checks**
    ```bash
-   grep -r "from heretic" src/ tests/
-   grep -r "import heretic" src/ tests/
+   grep -r "from bruno" src/ tests/
+   grep -r "import bruno" src/ tests/
    ```
 
 **Ready to proceed with the migration?**

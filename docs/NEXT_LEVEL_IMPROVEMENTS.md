@@ -1,10 +1,10 @@
-# Next-Level Abliteration Improvements for Heretic
+# Next-Level Abliteration Improvements for Bruno
 
 ## Executive Summary
 
-Based on comprehensive analysis of the heretic codebase, 2024 research papers, and state-of-the-art techniques in representation engineering, this document outlines **innovative improvements** to significantly enhance abliteration quality.
+Based on comprehensive analysis of the bruno codebase, 2024 research papers, and state-of-the-art techniques in representation engineering, this document outlines **innovative improvements** to significantly enhance abliteration quality.
 
-**Current State**: Heretic already implements contrastive PCA, eigenvalue weights, layer profiles, orthogonalization, iterative refinement, and MMLU validation.
+**Current State**: Bruno already implements contrastive PCA, eigenvalue weights, layer profiles, orthogonalization, iterative refinement, and MMLU validation.
 
 **Goal**: Push from "good abliteration" to "state-of-the-art precision refusal removal with capability preservation."
 
@@ -20,7 +20,7 @@ Before implementing any improvement, be aware of these fundamental constraints:
 
 ### Architectural Constraints
 
-1. **Heretic modifies weights permanently** via `matrix.sub_(...)`. Any "dynamic" or "per-prompt" approach requires inference-time hooks, not weight modification.
+1. **Bruno modifies weights permanently** via `matrix.sub_(...)`. Any "dynamic" or "per-prompt" approach requires inference-time hooks, not weight modification.
 
 2. **No hook infrastructure exists** in the current codebase. Circuit-level ablation would require significant architectural changes.
 
@@ -104,7 +104,7 @@ Use zero-shot NLI classification to detect ALL forms of refusal behavior.
 ### Implementation
 
 ```python
-# src/heretic/evaluator.py - Add neural refusal detection
+# src/bruno/evaluator.py - Add neural refusal detection
 
 import torch
 from typing import TYPE_CHECKING
@@ -225,7 +225,7 @@ class NeuralRefusalDetector:
 
 ### Config Changes
 
-> **Note**: These settings go in `config.toml` (or use CLI flags like `--use-neural-refusal-detection`). Heretic supports TOML config, environment variables (`HERETIC_` prefix), and CLI arguments.
+> **Note**: These settings go in `config.toml` (or use CLI flags like `--use-neural-refusal-detection`). Bruno supports TOML config, environment variables (`BRUNO_` prefix), and CLI arguments.
 
 ```toml
 # Use neural refusal detection (requires additional ~4GB VRAM)
@@ -269,7 +269,7 @@ Train a lightweight linear classifier (probe) on residual activations to predict
 ### Implementation
 
 ```python
-# src/heretic/model.py - Add new method
+# src/bruno/model.py - Add new method
 
 import numpy as np
 import torch
@@ -279,10 +279,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 from typing import TYPE_CHECKING
 
-from heretic.utils import load_prompts
+from bruno.utils import load_prompts
 
 if TYPE_CHECKING:
-    from heretic.evaluator import Evaluator
+    from bruno.evaluator import Evaluator
 
 
 class RefusalProbe:
@@ -409,7 +409,7 @@ def get_refusal_directions_supervised(
 
 ### Config Changes
 
-> **Note**: These settings go in `config.toml` (or use CLI flags like `--use-supervised-probing`). Heretic supports TOML config, environment variables (`HERETIC_` prefix), and CLI arguments.
+> **Note**: These settings go in `config.toml` (or use CLI flags like `--use-supervised-probing`). Bruno supports TOML config, environment variables (`BRUNO_` prefix), and CLI arguments.
 
 ```toml
 # Use supervised probing instead of PCA for direction extraction
@@ -445,7 +445,7 @@ ensemble_weight_pca = 0.3
 
 ### Problem (Original)
 The original "Dynamic Intervention Strength" proposal was **fundamentally flawed** because:
-- Heretic modifies weights **permanently** via `matrix.sub_(...)`
+- Bruno modifies weights **permanently** via `matrix.sub_(...)`
 - You cannot do "per-prompt dynamic strength" at inference time with permanent weight changes
 - The proposal conflated inference-time steering with permanent ablation
 
@@ -457,7 +457,7 @@ Instead of dynamic per-prompt intervention, we compute **training-time statistic
 ### Implementation
 
 ```python
-# src/heretic/model.py - Add activation-scaled weight computation
+# src/bruno/model.py - Add activation-scaled weight computation
 
 import numpy as np
 import torch
@@ -577,7 +577,7 @@ activation_target_percentile = 0.75
 | Per-prompt dynamic weights | Training-time calibration |
 | Requires inference hooks | Works with permanent weights |
 | Changes per input | Fixed after calibration |
-| Incompatible with heretic | Compatible with existing architecture |
+| Incompatible with bruno | Compatible with existing architecture |
 
 ### Failure Modes
 
@@ -606,7 +606,7 @@ Research suggests refusal may be encoded as **multiple "concept cones"** - diffe
 ### Implementation
 
 ```python
-# src/heretic/model.py - Add concept cone extraction
+# src/bruno/model.py - Add concept cone extraction
 
 import torch
 from torch import Tensor
@@ -616,7 +616,7 @@ from sklearn.metrics import silhouette_score
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from heretic.model import Model, PCAExtractionResult
+    from bruno.model import Model, PCAExtractionResult
 
 
 @dataclass
@@ -761,7 +761,7 @@ Current ablation only **removes** the refusal direction. Research shows that **a
 ### Implementation
 
 ```python
-# src/heretic/model.py - Add CAA integration
+# src/bruno/model.py - Add CAA integration
 
 import torch
 import torch.nn.functional as F
@@ -769,7 +769,7 @@ from torch import Tensor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from heretic.model import AbliterationParameters, LayerRangeProfile
+    from bruno.model import AbliterationParameters, LayerRangeProfile
 
 
 # Add these methods to the Model class:
@@ -908,7 +908,7 @@ Current layer-level ablation is **too coarse**. Research shows refusal is mediat
 The original code had bugs. Here's the corrected version:
 
 ```python
-# src/heretic/model.py - Add circuit discovery
+# src/bruno/model.py - Add circuit discovery
 # NOTE: This is pseudocode - actual implementation requires hook infrastructure
 
 import torch
@@ -1036,7 +1036,7 @@ You **cannot** directly transfer directions between models with different hidden
 ### Implementation (Limited Version)
 
 ```python
-# src/heretic/transfer.py - Cross-model hyperparameter transfer only
+# src/bruno/transfer.py - Cross-model hyperparameter transfer only
 
 from dataclasses import dataclass
 
@@ -1149,15 +1149,15 @@ Sparse Autoencoders (SAEs) are cutting-edge research from Anthropic. They:
 
 ### Phase 1 (Week 1-2): Foundation & Neural Detector
 - [x] Add `scikit-learn>=1.3.0` to pyproject.toml ✅ (already completed)
-- [ ] Add new settings to `src/heretic/config.py`:
+- [ ] Add new settings to `src/bruno/config.py`:
   - `use_neural_refusal_detection: bool = False`
   - `neural_detection_model: str = "facebook/bart-large-mnli"`
   - `neural_detection_for_optuna: bool = False`
-- [ ] Implement **Neural Refusal Detector** in `src/heretic/evaluator.py`
+- [ ] Implement **Neural Refusal Detector** in `src/bruno/evaluator.py`
 - [ ] Add unit tests for neural detector
 
 ### Phase 2 (Week 3-4): Core Improvements
-- [ ] Add supervised probing settings to `src/heretic/config.py`:
+- [ ] Add supervised probing settings to `src/bruno/config.py`:
   - `use_supervised_probing: bool = False`
   - `min_probe_accuracy: float = 0.65`
   - `ensemble_probe_pca: bool = False`
@@ -1167,7 +1167,7 @@ Sparse Autoencoders (SAEs) are cutting-edge research from Anthropic. They:
 - [ ] Create A/B test benchmark suite in `tests/benchmark/`
 
 ### Phase 3 (Week 5-6): Experimental
-- [ ] Add concept cones and CAA settings to `src/heretic/config.py`
+- [ ] Add concept cones and CAA settings to `src/bruno/config.py`
 - [ ] Implement **Concept Cones** with silhouette validation
 - [ ] Implement **CAA** with orthogonality checking
 - [ ] Run comparative benchmarks
@@ -1234,7 +1234,7 @@ IMPROVEMENTS = [
 ]
 
 def run_benchmark(model, seed, improvement):
-    # Run heretic with specific configuration
+    # Run bruno with specific configuration
     # Return: refusal_rate, kl_divergence, mmlu_scores
     pass
 ```

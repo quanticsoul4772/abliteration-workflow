@@ -1,10 +1,10 @@
-# Heretic Architecture
+# Bruno Architecture
 
-This document describes the modular architecture of heretic's abliteration pipeline.
+This document describes the modular architecture of bruno's abliteration pipeline.
 
 ## Overview
 
-Heretic v1.2.0 refactored the monolithic `run()` function into discrete, testable phase modules. This improves:
+Bruno v1.2.0 refactored the monolithic `run()` function into discrete, testable phase modules. This improves:
 - **Testability**: Each phase can be unit tested independently
 - **Maintainability**: Changes to one phase don't affect others
 - **Extensibility**: New phases can be added without modifying existing code
@@ -15,7 +15,7 @@ Heretic v1.2.0 refactored the monolithic `run()` function into discrete, testabl
 ## Phase Module Structure
 
 ```
-src/heretic/phases/
+src/bruno/phases/
 ├── __init__.py              # Exports all phase functions and dataclasses
 ├── dataset_loading.py       # Phase 1: Dataset loading
 ├── direction_extraction.py  # Phase 2: Direction extraction
@@ -49,7 +49,7 @@ class DatasetBundle:
 
 **Usage**:
 ```python
-from heretic.phases import load_datasets, DatasetBundle
+from bruno.phases import load_datasets, DatasetBundle
 
 datasets = load_datasets(settings)
 print(f"Loaded {len(datasets.good_prompts)} good prompts")
@@ -84,7 +84,7 @@ class DirectionExtractionResult:
 
 **Usage**:
 ```python
-from heretic.phases import extract_refusal_directions, apply_helpfulness_orthogonalization
+from bruno.phases import extract_refusal_directions, apply_helpfulness_orthogonalization
 
 # Extract refusal directions
 good_residuals, bad_residuals, result = extract_refusal_directions(
@@ -119,7 +119,7 @@ if datasets.helpful_prompts:
 
 **Usage**:
 ```python
-from heretic.phases import create_study, enqueue_warm_start_trials, run_optimization
+from bruno.phases import create_study, enqueue_warm_start_trials, run_optimization
 
 # Create study with resume support
 study = create_study(settings)
@@ -149,7 +149,7 @@ run_optimization(study, objective_function, settings.n_trials)
 
 **Usage**:
 ```python
-from heretic.phases import save_model_local, upload_model_huggingface
+from bruno.phases import save_model_local, upload_model_huggingface
 
 # Save locally
 save_model_local(model, "./models/my-abliterated-model")
@@ -160,7 +160,7 @@ upload_model_huggingface(
     settings=settings,
     trial=best_trial,
     evaluator=evaluator,
-    repo_id="username/model-heretic",
+    repo_id="username/model-bruno",
 )
 ```
 
@@ -168,7 +168,7 @@ upload_model_huggingface(
 
 ## Constants Module
 
-**Module**: `src/heretic/constants.py`
+**Module**: `src/bruno/constants.py`
 
 **Purpose**: Centralize magic numbers and thresholds.
 
@@ -181,7 +181,7 @@ upload_model_huggingface(
 
 **Usage**:
 ```python
-from heretic.constants import Thresholds, LayerPos, Memory
+from bruno.constants import Thresholds, LayerPos, Memory
 
 if magnitude < Thresholds.NEAR_ZERO:
     raise SacredDirectionError("Direction too small")
@@ -194,12 +194,12 @@ end_layer = int(LayerPos.MIDDLE_END * n_layers)
 
 ## Exception Hierarchy
 
-**Module**: `src/heretic/exceptions.py`
+**Module**: `src/bruno/exceptions.py`
 
-Heretic uses a structured exception hierarchy for clear error handling:
+Bruno uses a structured exception hierarchy for clear error handling:
 
 ```
-HereticError (base)
+BrunoError (base)
 ├── ModelError
 │   ├── ModelNotFoundError
 │   ├── ModelLoadError
@@ -224,7 +224,7 @@ HereticError (base)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     HERETIC PIPELINE                            │
+│                     BRUNO PIPELINE                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │   ┌─────────────────┐                                           │
@@ -280,12 +280,12 @@ uv run pytest tests/unit/ -v
 
 To add a new phase:
 
-1. Create `src/heretic/phases/your_phase.py`
+1. Create `src/bruno/phases/your_phase.py`
 2. Define dataclasses for inputs/outputs
 3. Implement phase functions
-4. Export from `src/heretic/phases/__init__.py`
+4. Export from `src/bruno/phases/__init__.py`
 5. Add unit tests in `tests/unit/test_phases.py`
-6. Integrate in `src/heretic/main.py`
+6. Integrate in `src/bruno/main.py`
 
 ---
 

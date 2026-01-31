@@ -1,4 +1,4 @@
-# Heretic Expansion Opportunities
+# Bruno Expansion Opportunities
 
 Strategic analysis of next-level improvements for neural behavior modification.
 
@@ -9,7 +9,7 @@ Strategic analysis of next-level improvements for neural behavior modification.
 
 ## Executive Summary
 
-Heretic's core technique (contrastive activation analysis + orthogonalization) is validated and production-ready. This document explores expansion opportunities from mathematics, neuroscience, physics, machine learning research, and philosophical approaches.
+Bruno's core technique (contrastive activation analysis + orthogonalization) is validated and production-ready. This document explores expansion opportunities from mathematics, neuroscience, physics, machine learning research, and philosophical approaches.
 
 **Key Insight**: Current implementation uses linear methods (PCA) and heuristic layer targeting. Opportunities exist in:
 1. Non-linear direction discovery (manifold learning)
@@ -332,7 +332,7 @@ refusal_direction = orthogonalize_against_sacred(refusal_dir, sacred_directions)
 
 **For each innovation**:
 1. Implement on small model (Qwen2.5-7B-Instruct)
-2. Compare against baseline (current heretic)
+2. Compare against baseline (current bruno)
 3. Measure: refusal reduction, KL divergence, MMLU accuracy
 4. Validate on 3+ behavioral targets (refusal, verbosity, hedging)
 5. If validated: scale to 32B models
@@ -358,7 +358,7 @@ refusal_direction = orthogonalize_against_sacred(refusal_dir, sacred_directions)
 - **Meta-learning** (learning to learn behaviors)
 - **Statistical mechanics** (temperature, energy landscapes)
 
-These foundations position heretic as a **rigorous scientific tool** for neural behavior modification, not just an engineering utility.
+These foundations position bruno as a **rigorous scientific tool** for neural behavior modification, not just an engineering utility.
 
 ---
 

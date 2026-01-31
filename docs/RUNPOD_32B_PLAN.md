@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-After 20+ hours of troubleshooting on Vast.ai 4x RTX 4090, we identified that **multi-GPU setup is fundamentally incompatible** with heretic's weight caching optimization. Switching to **RunPod A100 80GB** will:
+After 20+ hours of troubleshooting on Vast.ai 4x RTX 4090, we identified that **multi-GPU setup is fundamentally incompatible** with bruno's weight caching optimization. Switching to **RunPod A100 80GB** will:
 
 - Enable weight caching: 5-10x faster trials (2s vs 30s reload)
 - Avoid meta device errors: Single GPU = no sharding issues
@@ -81,7 +81,7 @@ use_pca_extraction = false
 # FIX: Helpfulness dataset needs language config
 # Disable orthogonalization instead since dataset is broken
 # helpfulness_prompts.dataset = "allenai/c4"
-# helpfulness_prompts.config = "en"  # <-- This field doesn't exist in heretic
+# helpfulness_prompts.config = "en"  # <-- This field doesn't exist in bruno
 # orthogonalize_directions = false  # Alternative: just disable it
 
 # ============================================================================
@@ -117,10 +117,10 @@ auto_select = true
 
 # CRITICAL: Save model to network volume (persists after pod deletion)
 # RunPod network volumes are at /runpod-volume or /workspace/volume
-auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-heretic"
+auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-bruno"
 
 # Optional: Auto-upload to HuggingFace
-# hf_upload = "your-username/qwen-32b-coder-heretic"
+# hf_upload = "your-username/qwen-32b-coder-bruno"
 # hf_private = false
 
 # ============================================================================
@@ -196,7 +196,7 @@ exit
 
 ### Phase 2: Environment Setup (15 minutes)
 
-**2.1 Install Heretic**
+**2.1 Install Bruno**
 ```bash
 # SSH to pod
 ssh root@<pod-id>-ssh.runpod.io
@@ -204,11 +204,11 @@ ssh root@<pod-id>-ssh.runpod.io
 # Install git
 apt-get update && apt-get install -y git
 
-# Install heretic
-pip install git+https://github.com/quanticsoul4772/heretic.git
+# Install bruno
+pip install git+https://github.com/quanticsoul4772/bruno.git
 
 # Verify installation
-heretic --help | head -20
+bruno --help | head -20
 ```
 
 **2.2 Set Environment Variables**
@@ -255,7 +255,7 @@ study_name = "qwen32b_a100"
 
 # Auto-save
 auto_select = true
-auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-heretic"
+auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-bruno"
 EOF
 
 # Verify config
@@ -263,7 +263,7 @@ cat /workspace/config.toml
 ```
 
 **Success criteria:**
-- [ ] Heretic installed and working
+- [ ] Bruno installed and working
 - [ ] HF_TOKEN set (verify with `echo $HF_TOKEN`)
 - [ ] Config file created at /workspace/config.toml
 - [ ] Directories created
@@ -325,7 +325,7 @@ sed -i 's/n_trials = 200/n_trials = 1/' /workspace/config.toml
 
 # Run single trial (test all components)
 cd /workspace
-heretic 2>&1 | tee heretic_test.log
+bruno 2>&1 | tee heretic_test.log
 
 # This will test:
 # - Model loading with device_map="auto"
@@ -358,7 +358,7 @@ grep -E "Trial 1|KL divergence|Refusals|Auto-selecting" heretic_test.log
 # - Model saved to /workspace/models/...
 
 # Check model was saved
-ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-heretic/
+ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-bruno/
 ```
 
 **Expected time:** 15-20 minutes for 1 trial
@@ -389,7 +389,7 @@ grep n_trials /workspace/config.toml
 ```bash
 # Start in background with nohup
 cd /workspace
-nohup heretic > heretic.log 2>&1 &
+nohup bruno > bruno.log 2>&1 &
 
 # Get process ID
 ps aux | grep '[h]eretic'
@@ -403,10 +403,10 @@ ps aux | grep '[h]eretic' | wc -l
 **5.3 Monitor Progress**
 ```bash
 # Follow logs
-tail -f /workspace/heretic.log
+tail -f /workspace/bruno.log
 
 # Or from local PowerShell:
-ssh root@<pod-id>-ssh.runpod.io 'tail -f /workspace/heretic.log'
+ssh root@<pod-id>-ssh.runpod.io 'tail -f /workspace/bruno.log'
 ```
 
 **5.4 Checkpoint Verification (Every 2 hours)**
@@ -416,7 +416,7 @@ ls -lh /workspace/heretic_32b.db
 # Size should grow over time
 
 # Check trial progress
-grep "Running trial" /workspace/heretic.log | tail -5
+grep "Running trial" /workspace/bruno.log | tail -5
 
 # Check GPU memory (should be stable)
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
@@ -437,7 +437,7 @@ nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
 **6.1 Verify Completion**
 ```bash
 # Check final log messages
-tail -50 /workspace/heretic.log
+tail -50 /workspace/bruno.log
 
 # Should see:
 # - "Optimization finished!"
@@ -445,17 +445,17 @@ tail -50 /workspace/heretic.log
 # - "Model saved to /workspace/models/..."
 
 # Verify model exists
-ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-heretic/
+ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-bruno/
 # Should show: config.json, model.safetensors (or sharded), tokenizer files
 ```
 
 **6.2 Download Model to Local**
 ```powershell
 # From local PowerShell
-scp -r root@<pod-id>-ssh.runpod.io:/workspace/models/Qwen2.5-Coder-32B-Instruct-heretic ./models/
+scp -r root@<pod-id>-ssh.runpod.io:/workspace/models/Qwen2.5-Coder-32B-Instruct-bruno ./models/
 
 # Or use runpod.ps1 automation:
-.\runpod.ps1 download-model Qwen2.5-Coder-32B-Instruct-heretic
+.\runpod.ps1 download-model Qwen2.5-Coder-32B-Instruct-bruno
 ```
 
 **6.3 Terminate Pod**
@@ -499,12 +499,12 @@ nvidia-smi --query-gpu=memory.used --format=csv,noheader
 echo $HF_TOKEN
 # Should show your token (not empty)
 
-# 5. Verify heretic version
-pip show heretic-llm | grep Version
+# 5. Verify bruno version
+pip show bruno-llm | grep Version
 # Should show: 1.0.1 or later
 
 # 6. Test config loads
-heretic --help > /dev/null && echo "Config OK" || echo "Config ERROR"
+bruno --help > /dev/null && echo "Config OK" || echo "Config ERROR"
 ```
 
 ---
@@ -515,7 +515,7 @@ heretic --help > /dev/null && echo "Config OK" || echo "Config ERROR"
 
 ```bash
 # 1. Trial progress
-grep "Running trial" /workspace/heretic.log | tail -3
+grep "Running trial" /workspace/bruno.log | tail -3
 
 # 2. GPU memory (should be stable)
 nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader
@@ -527,7 +527,7 @@ ps aux | grep '[h]eretic' || echo "PROCESS DIED"
 ls -lh /workspace/heretic_32b.db
 
 # 5. No errors in recent log
-tail -50 /workspace/heretic.log | grep -i "error\|traceback\|failed" || echo "No errors"
+tail -50 /workspace/bruno.log | grep -i "error\|traceback\|failed" || echo "No errors"
 ```
 
 ### Red Flags to Watch For
@@ -555,7 +555,7 @@ tail -50 /workspace/heretic.log | grep -i "error\|traceback\|failed" || echo "No
 
 4. **Multiple processes:**
    ```bash
-   ps aux | grep heretic | wc -l
+   ps aux | grep bruno | wc -l
    # Shows: 2 or more
    ```
    **Action:** Kill all and restart
@@ -579,12 +579,12 @@ tail -50 /workspace/heretic.log | grep -i "error\|traceback\|failed" || echo "No
 ls -lh /workspace/heretic_32b.db
 
 # 2. Note how many trials completed
-grep "Running trial" /workspace/heretic.log | tail -1
+grep "Running trial" /workspace/bruno.log | tail -1
 # Shows: Running trial <N> of 200
 
-# 3. Simply restart heretic (will resume from trial N+1)
+# 3. Simply restart bruno (will resume from trial N+1)
 cd /workspace
-nohup heretic > heretic.log 2>&1 &
+nohup bruno > bruno.log 2>&1 &
 
 # Optuna storage auto-resumes from last completed trial
 ```
@@ -597,7 +597,7 @@ ls -lh /workspace/heretic_32b.db
 
 # If DB exists:
 cd /workspace
-nohup heretic > heretic.log 2>&1 &
+nohup bruno > bruno.log 2>&1 &
 # Will resume from last completed trial
 
 # If DB is gone (network volume unmounted):
@@ -613,7 +613,7 @@ nohup heretic > heretic.log 2>&1 &
 | Phase | Duration | Cumulative | Activity |
 |-------|----------|------------|----------|
 | Pod creation | 5 min | 5 min | RunPod console |
-| Setup | 15 min | 20 min | Install heretic, config |
+| Setup | 15 min | 20 min | Install bruno, config |
 | Validation | 5 min | 25 min | Pre-flight checks |
 | Dry run (1 trial) | 20 min | 45 min | Test configuration |
 | **Full run** | **12-15h** | **13-16h** | 200 trials |
@@ -632,22 +632,22 @@ After completion, verify:
 
 ```bash
 # 1. All 200 trials completed
-grep "Running trial 200" /workspace/heretic.log
+grep "Running trial 200" /workspace/bruno.log
 
 # 2. Model saved
-ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-heretic/
+ls -lh /workspace/models/Qwen2.5-Coder-32B-Instruct-bruno/
 # Should show: ~64GB model directory
 
 # 3. Best trial selected
-grep "Auto-selecting trial" /workspace/heretic.log
+grep "Auto-selecting trial" /workspace/bruno.log
 # Shows which trial was chosen
 
 # 4. Quality metrics
-grep -A 2 "Auto-selecting" /workspace/heretic.log
+grep -A 2 "Auto-selecting" /workspace/bruno.log
 # Shows: Refusals: X/100, KL divergence: Y.YY
 
 # 5. No crashes
-grep -i "OutOfMemoryError\|RuntimeError.*meta\|Traceback" /workspace/heretic.log | wc -l
+grep -i "OutOfMemoryError\|RuntimeError.*meta\|Traceback" /workspace/bruno.log | wc -l
 # Should be: 0
 ```
 
@@ -688,7 +688,7 @@ After successful completion:
 
 1. **Download model:** `scp -r root@<pod>:/workspace/models/... ./models/`
 2. **Save Optuna DB:** `scp root@<pod>:/workspace/heretic_32b.db ./`
-3. **Save logs:** `scp root@<pod>:/workspace/heretic.log ./logs/qwen32b_a100.log`
+3. **Save logs:** `scp root@<pod>:/workspace/bruno.log ./logs/qwen32b_a100.log`
 4. **Document results:** Add to knowledge.md with actual timing data
 5. **Terminate pod:** Stop billing via RunPod console
 6. **Update LESSONS_LEARNED.md:** Add A100 success story
@@ -708,13 +708,13 @@ After successful completion:
 ### During Setup
 - [ ] Pod created with A100 80GB
 - [ ] SSH access working
-- [ ] Heretic installed (version 1.0.1+)
+- [ ] Bruno installed (version 1.0.1+)
 - [ ] Config file created with correct settings
 - [ ] HF_TOKEN environment variable set
 - [ ] Pre-flight checks pass
 
 ### During Run
-- [ ] Single heretic process only
+- [ ] Single bruno process only
 - [ ] GPU memory stable at ~60-65GB
 - [ ] No meta device errors
 - [ ] No OOM errors

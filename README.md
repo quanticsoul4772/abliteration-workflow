@@ -1,15 +1,17 @@
-# Heretic
+# Bruno
 
 [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyPI](https://img.shields.io/badge/pypi-heretic--llm-blue.svg)](https://pypi.org/project/heretic-llm/)
+[![PyPI](https://img.shields.io/badge/pypi-bruno--ai-blue.svg)](https://pypi.org/project/bruno-ai/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-Tool for modifying language model behaviors through activation direction analysis and Optuna-based optimization.
+**Neural behavior engineering framework for surgical modification of language model behaviors.**
+
+Named after Giordano Bruno (1548-1600), who proposed an infinite universe with infinite worlds against imposed cosmic constraints. Like Bruno revealed infinite cosmic possibilities, this framework reveals infinite behavioral possibilities in neural networks.
 
 ## What It Does
 
-Heretic identifies and modifies behavioral directions encoded in language model weights. It uses contrastive activation analysis to extract direction vectors, then applies orthogonalization to remove unwanted behaviors while preserving model capabilities.
+Bruno identifies and modifies behavioral directions encoded in language model weights. It uses contrastive activation analysis to extract direction vectors, then applies orthogonalization to remove unwanted behaviors while preserving model capabilities.
 
 The technique works for any behavior with distinguishable activation patterns:
 - **Refusal behaviors** (most common use case - "abliteration")
@@ -48,7 +50,7 @@ The technique works for any behavior with distinguishable activation patterns:
 - Parallel evaluation (KL divergence and refusal counting)
 
 **Cloud GPU Tools:**
-- Dedicated `heretic-vast` CLI for Vast.ai management
+- Dedicated `bruno-vast` CLI for Vast.ai management
 - GPU tier presets (RTX_4090, A6000, A100, H100)
 - Live terminal dashboard with real-time monitoring
 - Docker image for RunPod/Vast.ai deployment
@@ -58,22 +60,22 @@ The technique works for any behavior with distinguishable activation patterns:
 ### From PyPI
 
 ```bash
-pip install heretic-llm
+pip install bruno-ai
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/p-e-w/heretic
-cd heretic
+git clone https://github.com/p-e-w/bruno
+cd bruno
 uv sync --all-extras --dev
 ```
 
 ### Using Docker
 
 ```bash
-docker pull quanticsoul4772/heretic
-docker run --gpus all -it quanticsoul4772/heretic heretic --help
+docker pull quanticsoul4772/bruno
+docker run --gpus all -it quanticsoul4772/bruno bruno --help
 ```
 
 ## Quick Start
@@ -82,13 +84,13 @@ docker run --gpus all -it quanticsoul4772/heretic heretic --help
 
 ```bash
 # Interactive mode (select trial from Pareto frontier)
-heretic Qwen/Qwen2.5-7B-Instruct
+bruno Qwen/Qwen2.5-7B-Instruct
 
 # Fully automated (headless operation)
-heretic Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload username/model-heretic
+bruno Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload username/model-bruno
 
 # Quick test with fewer trials
-heretic Qwen/Qwen2.5-7B-Instruct --n-trials 50
+bruno Qwen/Qwen2.5-7B-Instruct --n-trials 50
 ```
 
 ### Cloud GPU Deployment
@@ -98,15 +100,15 @@ heretic Qwen/Qwen2.5-7B-Instruct --n-trials 50
 ```bash
 # Setup
 export VAST_API_KEY='your-api-key'
-pip install heretic-llm fabric rich
+pip install bruno-ai fabric rich
 
 # Run abliteration on cloud
-heretic-vast create A100_80GB 1          # Rent GPU instance
-heretic-vast setup                        # Install heretic
-heretic-vast run Qwen/Qwen2.5-32B-Instruct
-heretic-vast watch                        # Monitor progress
-heretic-vast download MODEL_NAME          # Download results
-heretic-vast stop                         # Stop billing
+bruno-vast create A100_80GB 1          # Rent GPU instance
+bruno-vast setup                        # Install bruno
+bruno-vast run Qwen/Qwen2.5-32B-Instruct
+bruno-vast watch                        # Monitor progress
+bruno-vast download MODEL_NAME          # Download results
+bruno-vast stop                         # Stop billing
 ```
 
 See [WORKFLOW.md](WORKFLOW.md) for detailed cloud GPU instructions.
@@ -114,8 +116,8 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed cloud GPU instructions.
 #### Option 2: Docker on RunPod/Vast.ai
 
 ```bash
-docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/heretic \
-    heretic Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload user/model-heretic
+docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/bruno \
+    bruno Qwen/Qwen2.5-7B-Instruct --auto-select --hf-upload user/model-bruno
 ```
 
 ## Configuration
@@ -161,12 +163,12 @@ batch_size = 8
 cache_weights = false  # Required for 32B+ on multi-GPU
 
 # Resume support
-storage = "sqlite:///heretic_study.db"
+storage = "sqlite:///bruno_study.db"
 study_name = "qwen32b-abliteration"
 
 # Auto-save
 auto_select = true
-auto_select_path = "./models/Qwen2.5-32B-Instruct-heretic"
+auto_select_path = "./models/Qwen2.5-32B-Instruct-bruno"
 
 # Dataset configuration
 [bad_prompts]
@@ -198,16 +200,16 @@ See [configs/](configs/) for example configurations.
 
 ### Custom Behavioral Directions
 
-Heretic can extract any behavioral direction, not just refusals:
+Bruno can extract any behavioral direction, not just refusals:
 
 ```bash
 # Verbosity modification (tested)
 cp experiments/verbosity/config.verbosity.toml config.toml
-heretic --model meta-llama/Llama-3.1-8B-Instruct
+bruno --model meta-llama/Llama-3.1-8B-Instruct
 
 # Hedging language removal (framework ready)
 cp experiments/hedging/config.hedging.toml config.toml
-heretic --model meta-llama/Llama-3.1-8B-Instruct
+bruno --model meta-llama/Llama-3.1-8B-Instruct
 ```
 
 See [experiments/](experiments/) for experimental behavioral directions.
@@ -217,7 +219,7 @@ See [experiments/](experiments/) for experimental behavioral directions.
 Protect model capabilities during abliteration by orthogonalizing against capability-encoding directions:
 
 ```bash
-heretic <model> --use-sacred-directions true --n-sacred-directions 5
+bruno <model> --use-sacred-directions true --n-sacred-directions 5
 ```
 
 **How it works:**
@@ -233,7 +235,7 @@ heretic <model> --use-sacred-directions true --n-sacred-directions 5
 Enable validation to measure abliteration effectiveness:
 
 ```bash
-heretic <model> --enable-validation --run-mmlu-validation
+bruno <model> --enable-validation --run-mmlu-validation
 ```
 
 Measures:
@@ -245,10 +247,10 @@ Measures:
 
 ```bash
 # First run
-heretic <model> --storage sqlite:///study.db --study-name experiment1
+bruno <model> --storage sqlite:///study.db --study-name experiment1
 
 # Resume after interruption
-heretic <model> --storage sqlite:///study.db --study-name experiment1
+bruno <model> --storage sqlite:///study.db --study-name experiment1
 ```
 
 Optuna automatically resumes from last completed trial.
@@ -259,7 +261,7 @@ Optuna automatically resumes from last completed trial.
 - `Model` - HuggingFace model wrapper with abliteration operations
 - `Evaluator` - Multi-objective scoring (KL divergence + refusal counting)
 - `Settings` - Pydantic configuration with CLI/env/file support + validators
-- `heretic-vast` - Cloud GPU management CLI for Vast.ai
+- `bruno-vast` - Cloud GPU management CLI for Vast.ai
 - `phases/` - Modular pipeline components (dataset loading, direction extraction, optimization, saving)
 - `constants` - Centralized thresholds and magic numbers
 
@@ -271,7 +273,7 @@ Optuna automatically resumes from last completed trial.
 
 ## Error Handling
 
-Heretic includes comprehensive error handling with:
+Bruno includes comprehensive error handling with:
 - Custom exception hierarchy (22 exception types)
 - Specific error messages with 2-3 actionable solutions
 - Input validation and security hardening
@@ -287,10 +289,10 @@ All errors provide clear guidance for resolution.
 **GPU Out of Memory:**
 ```bash
 # Use smaller batch size
-heretic <model> --batch-size 4 --max-batch-size 16
+bruno <model> --batch-size 4 --max-batch-size 16
 
 # Disable weight caching for large models
-heretic <model> --cache-weights false
+bruno <model> --cache-weights false
 
 # Use smaller model or quantization
 ```
@@ -298,7 +300,7 @@ heretic <model> --cache-weights false
 **C4 Dataset Errors:**
 ```bash
 # C4 requires config parameter
-heretic <model> --unhelpfulness-prompts.config en
+bruno <model> --unhelpfulness-prompts.config en
 
 # C4 requires sample count in split
 # Use: train[:200] not just train
@@ -382,7 +384,7 @@ See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned impro
 - [Abliterated Models Collection](https://huggingface.co/collections/p-e-w/the-bestiary)
 
 **Repositories:**
-- [Original Project](https://github.com/p-e-w/heretic) by Philipp Emanuel Weidmann
+- [Original Project](https://github.com/p-e-w/bruno) by Philipp Emanuel Weidmann
 - [This Fork](https://github.com/quanticsoul4772/abliteration-workflow) - Extended features
 
 ## License

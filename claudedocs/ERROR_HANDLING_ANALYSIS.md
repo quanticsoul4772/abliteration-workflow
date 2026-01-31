@@ -1,4 +1,4 @@
-# Heretic Project Error Handling Analysis
+# Bruno Project Error Handling Analysis
 
 > **STATUS: ✅ IMPLEMENTED (2026-01-30)**
 >
@@ -6,7 +6,7 @@
 > **All recommendations have been implemented** in commit `4f0038f`.
 >
 > **Implementation includes:**
-> - 16 custom exceptions (HereticError hierarchy)
+> - 16 custom exceptions (BrunoError hierarchy)
 > - Specific error handling in model.py, utils.py, validation.py, vast.py
 > - Input validation with security hardening (path traversal/injection protection)
 > - Enhanced logging framework with file rotation
@@ -26,7 +26,7 @@
 
 ## Executive Summary
 
-The heretic project demonstrates **moderate error handling maturity** with some excellent practices in critical paths (OOM recovery, validation errors) but significant gaps in robustness, particularly around network operations, file I/O, and model loading.
+The bruno project demonstrates **moderate error handling maturity** with some excellent practices in critical paths (OOM recovery, validation errors) but significant gaps in robustness, particularly around network operations, file I/O, and model loading.
 
 ---
 
@@ -132,14 +132,14 @@ self.model = AutoModelForCausalLM.from_pretrained(...)  # Can fail 10+ ways
 
 ## Recommended Exception Hierarchy
 
-Create `src/heretic/exceptions.py`:
+Create `src/bruno/exceptions.py`:
 
 ```python
-class HereticError(Exception):
-    """Base exception for all heretic errors."""
+class BrunoError(Exception):
+    """Base exception for all bruno errors."""
     pass
 
-class ModelError(HereticError):
+class ModelError(BrunoError):
     """Errors related to model operations."""
     pass
 
@@ -147,23 +147,23 @@ class ModelLoadError(ModelError):
     """Failed to load model from disk or HuggingFace."""
     pass
 
-class DatasetError(HereticError):
+class DatasetError(BrunoError):
     """Errors related to dataset loading."""
     pass
 
-class NetworkError(HereticError):
+class NetworkError(BrunoError):
     """Network operation failures."""
     pass
 
-class CloudError(HereticError):
+class CloudError(BrunoError):
     """Cloud GPU provider errors."""
     pass
 
-class ConfigurationError(HereticError):
+class ConfigurationError(BrunoError):
     """Invalid configuration parameters."""
     pass
 
-class ValidationError(HereticError):
+class ValidationError(BrunoError):
     """Validation framework errors."""
     pass
 ```

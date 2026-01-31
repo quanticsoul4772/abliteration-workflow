@@ -2,12 +2,12 @@
 
 ## Summary
 
-Successfully implemented GPU-accelerated contrastive PCA extraction for heretic, replacing CPU-bound numpy eigendecomposition with GPU-accelerated torch operations.
+Successfully implemented GPU-accelerated contrastive PCA extraction for bruno, replacing CPU-bound numpy eigendecomposition with GPU-accelerated torch operations.
 
 ## Changes Made
 
 ### Modified Files
-1. **src/heretic/model.py** (lines 1035-1085)
+1. **src/bruno/model.py** (lines 1035-1085)
    - `get_refusal_directions_pca()` method optimized for GPU execution
    - Replaced `np.linalg.eigh()` with `torch.linalg.eigh()`
    - Removed `.cpu().numpy()` conversions - keep tensors on GPU
@@ -84,17 +84,17 @@ eigenvalues, eigenvectors = torch.linalg.eigh(cov_contrastive)  # FAST
 3. ❌ **Issue 1: config.default.toml not packaged in wheel**
 
 #### Issue 1: Missing Config File in Wheel
-**Problem:** The `config.default.toml` was in project root, not in `src/heretic/`, so it wasn't included in the wheel.
+**Problem:** The `config.default.toml` was in project root, not in `src/bruno/`, so it wasn't included in the wheel.
 
 **Solution:**
 ```bash
 # Move config to package directory
-cp config.default.toml src/heretic/config.default.toml
+cp config.default.toml src/bruno/config.default.toml
 
 # Update pyproject.toml
 [tool.uv.build-backend]
-module-name = "heretic"
-data-files = { "heretic" = ["config.default.toml"] }
+module-name = "bruno"
+data-files = { "bruno" = ["config.default.toml"] }
 ```
 
 **Commit:** `bb094e0` - "Fix packaging: include config.default.toml in wheel with C4 config"
@@ -105,7 +105,7 @@ data-files = { "heretic" = ["config.default.toml"] }
 **Root Cause:** The `DatasetSpecification` class didn't have a `config` field for dataset variants (e.g., "en" for C4).
 
 **Solution:**
-1. Added `config` field to `DatasetSpecification` class (src/heretic/config.py):
+1. Added `config` field to `DatasetSpecification` class (src/bruno/config.py):
 ```python
 class DatasetSpecification(BaseModel):
     dataset: str = Field(...)
@@ -114,7 +114,7 @@ class DatasetSpecification(BaseModel):
     column: str = Field(...)
 ```
 
-2. Updated `load_prompts()` to use config parameter (src/heretic/utils.py):
+2. Updated `load_prompts()` to use config parameter (src/bruno/utils.py):
 ```python
 if specification.config:
     dataset = load_dataset(specification.dataset, specification.config, split=specification.split)
@@ -136,7 +136,7 @@ column = "text"
 #### Issue 3: CLI Arguments Override TOML Config
 **Problem:** Even after fixing the config file, the C4 error persisted because CLI arguments take precedence over TOML settings.
 
-**Root Cause:** When running `heretic --model ...`, Pydantic's settings priority is:
+**Root Cause:** When running `bruno --model ...`, Pydantic's settings priority is:
 1. CLI arguments (highest priority)
 2. Environment variables
 3. TOML config file (lowest priority)
@@ -145,7 +145,7 @@ The CLI default for `--unhelpfulness-prompts.config` is `None`, which overrides 
 
 **Solution:** Pass the config via CLI:
 ```bash
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --unhelpfulness-prompts.config en \
   --cache-weights false \
   --n-trials 200
@@ -158,16 +158,16 @@ heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace
 
-nohup heretic \
+nohup bruno \
   --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --auto-select true \
   --auto-select-path /workspace/models \
-  --storage sqlite:////workspace/heretic_study.db \
+  --storage sqlite:////workspace/bruno_study.db \
   --study-name qwen32b-abliteration \
   --cache-weights false \
   --n-trials 200 \
   --unhelpfulness-prompts.config en \
-  > /workspace/heretic.log 2>&1 &
+  > /workspace/bruno.log 2>&1 &
 ```
 
 ## Verification Results

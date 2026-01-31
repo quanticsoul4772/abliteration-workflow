@@ -120,7 +120,7 @@ Before attempting to restore weights, the following checks are performed:
 **Out of Memory:**
 ```bash
 # Disable caching and use disk reload
-heretic --model MODEL --cache-weights false
+bruno --model MODEL --cache-weights false
 ```
 
 **Architecture Incompatibility:**

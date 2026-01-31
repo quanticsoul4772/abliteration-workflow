@@ -1,4 +1,4 @@
-# Heretic Abliteration Workflow - Detailed Diagram
+# Bruno Abliteration Workflow - Detailed Diagram
 
 **Version:** 1.2.0+
 **Date:** 2026-01-31
@@ -7,7 +7,7 @@
 
 ## Overview
 
-Heretic performs neural behavior modification through activation direction analysis and Optuna-based optimization. This document provides detailed diagrams of the complete workflow.
+Bruno performs neural behavior modification through activation direction analysis and Optuna-based optimization. This document provides detailed diagrams of the complete workflow.
 
 ---
 
@@ -15,7 +15,7 @@ Heretic performs neural behavior modification through activation direction analy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         HERETIC PIPELINE                            │
+│                         BRUNO PIPELINE                            │
 │                                                                     │
 │  Input: Model + Prompts → Output: Modified Model (Abliterated)     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -60,7 +60,7 @@ Heretic performs neural behavior modification through activation direction analy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        HERETIC COMPONENTS                           │
+│                        BRUNO COMPONENTS                           │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
@@ -266,8 +266,8 @@ Output: Best parameters + Abliterated model
 │  Initialize Optuna Study                                            │
 │                                                                     │
 │  study = optuna.create_study(                                      │
-│      study_name="heretic_study",                                   │
-│      storage="sqlite:///heretic_study.db",  # Resume support       │
+│      study_name="bruno_study",                                   │
+│      storage="sqlite:///bruno_study.db",  # Resume support       │
 │      sampler=TPESampler(),                                         │
 │      directions=["minimize", "minimize"],   # Multi-objective      │
 │  )                                                                  │
@@ -591,7 +591,7 @@ Output: Saved model on disk / HuggingFace Hub
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         DATA FLOW THROUGH HERETIC                   │
+│                         DATA FLOW THROUGH BRUNO                   │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────┐
@@ -683,7 +683,7 @@ Output: Saved model on disk / HuggingFace Hub
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      ERROR HANDLING IN HERETIC                      │
+│                      ERROR HANDLING IN BRUNO                      │
 └─────────────────────────────────────────────────────────────────────┘
 
 Cache Creation:
@@ -761,22 +761,22 @@ Cache Restoration:
 Priority (Highest to Lowest):
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 1. CLI Arguments                                                    │
-│    heretic --model MODEL --cache-weights true --n-trials 200        │
+│    bruno --model MODEL --cache-weights true --n-trials 200        │
 │    ✓ Overrides everything                                           │
 └─────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 2. Environment Variables                                            │
-│    export HERETIC_MODEL="Qwen/Qwen2.5-Coder-32B-Instruct"          │
-│    export HERETIC_CACHE_WEIGHTS=true                                │
+│    export BRUNO_MODEL="Qwen/Qwen2.5-Coder-32B-Instruct"          │
+│    export BRUNO_CACHE_WEIGHTS=true                                │
 │    ✓ Used if CLI arg not provided                                   │
 └─────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 3. config.toml File                                                 │
-│    [heretic]                                                        │
+│    [bruno]                                                        │
 │    model = "Qwen/Qwen2.5-Coder-32B-Instruct"                        │
 │    cache_weights = true                                             │
 │    ✓ Used if no CLI arg or env var                                  │

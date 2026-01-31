@@ -1,14 +1,14 @@
-# Innovative Improvements for Heretic Abliteration
+# Innovative Improvements for Bruno Abliteration
 
 ## Executive Summary
 
-Based on analysis of the heretic codebase and recent 2024 research on LLM refusal removal, I propose **5 innovative improvements** that would significantly enhance abliteration quality. These improvements build on the existing sophisticated implementation (which already includes contrastive PCA, eigenvalue weighting, layer profiles, orthogonalization, iterative refinement, and MMLU validation) while incorporating cutting-edge techniques from recent research.
+Based on analysis of the bruno codebase and recent 2024 research on LLM refusal removal, I propose **5 innovative improvements** that would significantly enhance abliteration quality. These improvements build on the existing sophisticated implementation (which already includes contrastive PCA, eigenvalue weighting, layer profiles, orthogonalization, iterative refinement, and MMLU validation) while incorporating cutting-edge techniques from recent research.
 
 ---
 
 ## Current Implementation Strengths
 
-The heretic codebase already implements several advanced techniques:
+The bruno codebase already implements several advanced techniques:
 - ✅ Contrastive PCA for multi-direction extraction (`get_refusal_directions_pca`)
 - ✅ Eigenvalue-based direction weights (`get_eigenvalue_weights`)
 - ✅ Per-layer-range profiles (early/middle/late layer multipliers)
@@ -29,7 +29,7 @@ The heretic codebase already implements several advanced techniques:
 **Implementation**:
 
 ```python
-# src/heretic/sae_abliteration.py
+# src/bruno/sae_abliteration.py
 
 import torch
 import torch.nn as nn
@@ -178,7 +178,7 @@ class SAERefusalExtractor:
 **Integration with existing code**:
 
 ```python
-# In src/heretic/model.py, add new method:
+# In src/bruno/model.py, add new method:
 
 def get_refusal_directions_sae(
     self,
@@ -276,7 +276,7 @@ sae_training_steps: int = Field(
 **Implementation**:
 
 ```python
-# src/heretic/cone_abliteration.py
+# src/bruno/cone_abliteration.py
 
 import torch
 import torch.nn.functional as F
@@ -407,7 +407,7 @@ class ConceptConeExtractor:
 **Integration with existing code**:
 
 ```python
-# In src/heretic/model.py, add new method:
+# In src/bruno/model.py, add new method:
 
 def abliterate_concept_cones(
     self,
@@ -499,7 +499,7 @@ cone_weight_method: Literal["uniform", "size_weighted", "radius_inverse"] = Fiel
 **Implementation**:
 
 ```python
-# src/heretic/adaptive_ablation.py
+# src/bruno/adaptive_ablation.py
 
 import torch
 import torch.nn as nn
@@ -755,7 +755,7 @@ adaptive_max_strength: float = Field(
 **Implementation**:
 
 ```python
-# src/heretic/direction_transfer.py
+# src/bruno/direction_transfer.py
 
 import torch
 import torch.nn.functional as F
@@ -1029,7 +1029,7 @@ direction_transfer_blend: float = Field(
 **Implementation**:
 
 ```python
-# src/heretic/caa_integration.py
+# src/bruno/caa_integration.py
 
 import torch
 import torch.nn as nn

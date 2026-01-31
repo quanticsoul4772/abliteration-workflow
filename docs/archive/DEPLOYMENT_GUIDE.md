@@ -1,6 +1,6 @@
-# Heretic Cloud GPU Deployment Guide
+# Bruno Cloud GPU Deployment Guide
 
-Quick reference for deploying heretic on Vast.ai or other cloud GPU providers.
+Quick reference for deploying bruno on Vast.ai or other cloud GPU providers.
 
 ## Prerequisites
 
@@ -27,67 +27,67 @@ unzip -l dist/heretic_llm-*.whl | grep toml
 
 ```bash
 # List available GPUs
-uv run heretic-vast tiers
+uv run bruno-vast tiers
 
 # Create instance (example: H200)
-uv run heretic-vast create H200 1
+uv run bruno-vast create H200 1
 
 # Wait ~30 seconds for startup
 sleep 30
 
 # Check status
-uv run heretic-vast list
+uv run bruno-vast list
 ```
 
-### 3. Deploy Heretic
+### 3. Deploy Bruno
 
 ```bash
 # Get instance details
-uv run heretic-vast list
+uv run bruno-vast list
 
 # Upload wheel
 scp -P <PORT> -o StrictHostKeyChecking=no \
     dist/heretic_llm-*.whl \
     root@<HOST>:/workspace/
 
-# Install (SSH in or use heretic-vast exec)
-uv run heretic-vast exec "pip install /workspace/heretic_llm-*.whl --force-reinstall"
+# Install (SSH in or use bruno-vast exec)
+uv run bruno-vast exec "pip install /workspace/heretic_llm-*.whl --force-reinstall"
 ```
 
 ### 4. Run Abliteration
 
 **For 7B models:**
 ```bash
-uv run heretic-vast exec "
+uv run bruno-vast exec "
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace
-nohup heretic \\
+nohup bruno \\
   --model Qwen/Qwen2.5-7B-Instruct \\
   --auto-select true \\
   --auto-select-path /workspace/models \\
-  --storage sqlite:///heretic_study.db \\
+  --storage sqlite:///bruno_study.db \\
   --study-name qwen7b \\
   --n-trials 50 \\
   --compile \\
-  > /workspace/heretic.log 2>&1 &
+  > /workspace/bruno.log 2>&1 &
 "
 ```
 
 **For 32B models:**
 ```bash
-uv run heretic-vast exec "
+uv run bruno-vast exec "
 export HF_HOME=/workspace/.cache/huggingface
 cd /workspace
-nohup heretic \\
+nohup bruno \\
   --model Qwen/Qwen2.5-Coder-32B-Instruct \\
   --auto-select true \\
   --auto-select-path /workspace/models \\
-  --storage sqlite:////workspace/heretic_study.db \\
+  --storage sqlite:////workspace/bruno_study.db \\
   --study-name qwen32b \\
   --cache-weights false \\
   --n-trials 200 \\
   --unhelpfulness-prompts.config en \\
-  > /workspace/heretic.log 2>&1 &
+  > /workspace/bruno.log 2>&1 &
 "
 ```
 
@@ -95,30 +95,30 @@ nohup heretic \\
 
 **Option 1: Live dashboard (recommended)**
 ```bash
-uv run heretic-vast watch
+uv run bruno-vast watch
 ```
 
 **Option 2: Follow logs**
 ```bash
-uv run heretic-vast exec "tail -f /workspace/heretic.log"
+uv run bruno-vast exec "tail -f /workspace/bruno.log"
 ```
 
 **Option 3: Check progress**
 ```bash
-uv run heretic-vast progress
+uv run bruno-vast progress
 ```
 
 ### 6. Download Results
 
 ```bash
 # List available models
-uv run heretic-vast models
+uv run bruno-vast models
 
 # Download specific model
-uv run heretic-vast download <MODEL_NAME>
+uv run bruno-vast download <MODEL_NAME>
 
 # Or download all models
-uv run heretic-vast exec "tar -czf /workspace/models.tar.gz /workspace/models/"
+uv run bruno-vast exec "tar -czf /workspace/models.tar.gz /workspace/models/"
 scp -P <PORT> root@<HOST>:/workspace/models.tar.gz ./
 ```
 
@@ -126,10 +126,10 @@ scp -P <PORT> root@<HOST>:/workspace/models.tar.gz ./
 
 ```bash
 # Stop instance (KILLS running processes!)
-uv run heretic-vast stop
+uv run bruno-vast stop
 
 # Or terminate permanently
-uv run heretic-vast terminate
+uv run bruno-vast terminate
 ```
 
 ## Critical Flags for Different Model Sizes
@@ -162,9 +162,9 @@ uv run heretic-vast terminate
 
 **Solution:**
 ```bash
-uv run heretic-vast exec "
-find /usr/local/lib/python3.10/dist-packages/heretic -name '*.pyc' -delete
-pkill -f 'heretic --model'
+uv run bruno-vast exec "
+find /usr/local/lib/python3.10/dist-packages/bruno -name '*.pyc' -delete
+pkill -f 'bruno --model'
 "
 ```
 
@@ -173,13 +173,13 @@ pkill -f 'heretic --model'
 **Check:**
 ```bash
 # Check if process is actually running
-uv run heretic-vast exec "ps aux | grep 'heretic --model'"
+uv run bruno-vast exec "ps aux | grep 'bruno --model'"
 
 # Check last 100 lines of log
-uv run heretic-vast exec "tail -100 /workspace/heretic.log"
+uv run bruno-vast exec "tail -100 /workspace/bruno.log"
 
 # Check for OOM in system logs
-uv run heretic-vast exec "dmesg | tail -20"
+uv run bruno-vast exec "dmesg | tail -20"
 ```
 
 ## Performance Tips
@@ -287,7 +287,7 @@ TOTAL:                       ~87GB ✅
 1. **Start with fewer trials:** Test with `--n-trials 10` first
 2. **Use resume:** Save progress with `--storage` to avoid restarts
 3. **Monitor closely:** Stop as soon as results are acceptable
-4. **Check progress:** `heretic-vast progress` shows trial count
+4. **Check progress:** `bruno-vast progress` shows trial count
 
 ### Example Cost Calculation
 
@@ -304,7 +304,7 @@ TOTAL:                       ~87GB ✅
 
 Before leaving abliteration running:
 
-- [ ] Process is actually running (`heretic-vast progress`)
+- [ ] Process is actually running (`bruno-vast progress`)
 - [ ] GPU utilization >0% (model loaded)
 - [ ] No errors in last 50 log lines
 - [ ] Trial 1 completes successfully
@@ -317,8 +317,8 @@ Before leaving abliteration running:
 
 ```bash
 # Same command with same --storage and --study-name
-heretic --model <MODEL> \\
-  --storage sqlite:///heretic_study.db \\
+bruno --model <MODEL> \\
+  --storage sqlite:///bruno_study.db \\
   --study-name <SAME_NAME> \\
   # ... other flags ...
 ```
@@ -327,14 +327,14 @@ heretic --model <MODEL> \\
 
 ```bash
 # Even if not complete, download what exists
-uv run heretic-vast exec "ls -la /workspace/models/"
-uv run heretic-vast download <MODEL_NAME>
+uv run bruno-vast exec "ls -la /workspace/models/"
+uv run bruno-vast download <MODEL_NAME>
 ```
 
 ### Check Optuna database
 
 ```bash
-uv run heretic-vast exec "sqlite3 /workspace/heretic_study.db 'SELECT COUNT(*) FROM trials;'"
+uv run bruno-vast exec "sqlite3 /workspace/bruno_study.db 'SELECT COUNT(*) FROM trials;'"
 ```
 
 ## Best Practices
@@ -351,25 +351,25 @@ uv run heretic-vast exec "sqlite3 /workspace/heretic_study.db 'SELECT COUNT(*) F
 
 ```bash
 # Check GPU status
-uv run heretic-vast status
+uv run bruno-vast status
 
 # Check disk space
-uv run heretic-vast exec "df -h /workspace"
+uv run bruno-vast exec "df -h /workspace"
 
 # Check memory usage
-uv run heretic-vast exec "free -h"
+uv run bruno-vast exec "free -h"
 
 # Check running processes
-uv run heretic-vast exec "ps aux | grep python"
+uv run bruno-vast exec "ps aux | grep python"
 
 # Check Optuna trials
-uv run heretic-vast exec "cd /workspace && python -c 'import optuna; study = optuna.load_study(study_name=\"qwen32b\", storage=\"sqlite:///heretic_study.db\"); print(f\"Trials: {len(study.trials)}\")'"
+uv run bruno-vast exec "cd /workspace && python -c 'import optuna; study = optuna.load_study(study_name=\"qwen32b\", storage=\"sqlite:///bruno_study.db\"); print(f\"Trials: {len(study.trials)}\")'"
 
 # Kill stuck process
-uv run heretic-vast exec "pkill -f 'heretic --model'"
+uv run bruno-vast exec "pkill -f 'bruno --model'"
 
 # Restart fresh
-uv run heretic-vast exec "pkill -f heretic && rm /workspace/heretic.log && <START_COMMAND>"
+uv run bruno-vast exec "pkill -f bruno && rm /workspace/bruno.log && <START_COMMAND>"
 ```
 
 ## Support & Documentation
@@ -377,4 +377,4 @@ uv run heretic-vast exec "pkill -f heretic && rm /workspace/heretic.log && <STAR
 - Main docs: `CLAUDE.md`
 - GPU optimization: `GPU_PCA_IMPLEMENTATION.md`
 - Workflow reference: `WORKFLOW.md`
-- Issue tracker: https://github.com/p-e-w/heretic/issues
+- Issue tracker: https://github.com/p-e-w/bruno/issues

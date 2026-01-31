@@ -262,7 +262,7 @@ def get_refusal_directions_pca_streaming(self, good_prompts, bad_prompts, n_comp
 ```python
 study = optuna.create_study(
     study_name=settings.study_name,
-    storage=settings.storage,  # sqlite:///heretic_study.db
+    storage=settings.storage,  # sqlite:///bruno_study.db
     load_if_exists=True  # ← Loads all historical trials
 )
 ```

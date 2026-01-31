@@ -1,4 +1,4 @@
-# Heretic Documentation Organization
+# Bruno Documentation Organization
 
 This directory contains planning documents, implementation records, and archived documentation.
 

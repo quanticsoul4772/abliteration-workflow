@@ -52,7 +52,7 @@ Other components **never modified**:
 
 ## Implementation Changes
 
-### File: `src/heretic/model.py`
+### File: `src/bruno/model.py`
 
 **1. Added `_create_layer_weights_cache()` method** (lines 852-888)
 - Creates selective cache of abliterable components only
@@ -208,19 +208,19 @@ Actual memory reduction varies by model architecture:
 ### Enable Selective Caching (Default)
 ```bash
 # 32B model with caching (NOW WORKS!)
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --cache-weights true \
   --n-trials 200
 
 # Or in config.toml
-[heretic]
+[bruno]
 cache_weights = true
 ```
 
 ### Disable Caching (Fallback)
 ```bash
 # Disable for extreme memory constraints
-heretic --model MODEL --cache-weights false
+bruno --model MODEL --cache-weights false
 ```
 
 ## Next Steps

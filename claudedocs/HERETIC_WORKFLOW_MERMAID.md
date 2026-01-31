@@ -1,9 +1,9 @@
-# Heretic Workflow - Mermaid Diagrams
+# Bruno Workflow - Mermaid Diagrams
 
 **Version:** 1.2.0+
 **Date:** 2026-01-31
 
-Visual workflow diagrams using Mermaid for the Heretic abliteration pipeline.
+Visual workflow diagrams using Mermaid for the Bruno abliteration pipeline.
 
 ---
 
@@ -74,7 +74,7 @@ graph TB
 
 ```mermaid
 flowchart TD
-    Start([Start Heretic]) --> LoadModel[Load Model<br/>62GB for 32B]
+    Start([Start Bruno]) --> LoadModel[Load Model<br/>62GB for 32B]
     LoadModel --> CreateCache{cache_weights<br/>enabled?}
 
     CreateCache -->|Yes v1.2.0+| LayerCache[Create Layer-Wise Cache<br/>28GB selective cache]
@@ -711,12 +711,12 @@ graph LR
 ```mermaid
 sequenceDiagram
     participant User
-    participant VastCLI as heretic-vast CLI
+    participant VastCLI as bruno-vast CLI
     participant VastAPI as Vast.ai API
     participant GPU as GPU Instance (H200)
-    participant Heretic as Heretic Process
+    participant Bruno as Bruno Process
 
-    User->>VastCLI: heretic-vast create H200 1
+    User->>VastCLI: bruno-vast create H200 1
     VastCLI->>VastAPI: Search for H200 with 200GB disk
     VastAPI-->>VastCLI: Return offer ID
     VastCLI->>VastAPI: Create instance
@@ -725,37 +725,37 @@ sequenceDiagram
     VastAPI-->>VastCLI: SSH details
     VastCLI-->>User: Instance created
 
-    User->>VastCLI: heretic-vast setup
-    VastCLI->>GPU: SSH install heretic
+    User->>VastCLI: bruno-vast setup
+    VastCLI->>GPU: SSH install bruno
     GPU-->>VastCLI: Installation complete
 
-    User->>VastCLI: heretic-vast exec "heretic..."
-    VastCLI->>GPU: SSH start heretic
-    GPU->>Heretic: Start process
-    Heretic-->>GPU: Running (PID logged)
+    User->>VastCLI: bruno-vast exec "bruno..."
+    VastCLI->>GPU: SSH start bruno
+    GPU->>Bruno: Start process
+    Bruno-->>GPU: Running (PID logged)
     GPU-->>VastCLI: Process started
     VastCLI-->>User: Training started
 
-    User->>VastCLI: heretic-vast watch
+    User->>VastCLI: bruno-vast watch
     loop Monitor Progress
-        VastCLI->>GPU: SSH tail -f heretic.log
+        VastCLI->>GPU: SSH tail -f bruno.log
         GPU-->>VastCLI: Log output
         VastCLI-->>User: Live dashboard
     end
 
-    Heretic->>Heretic: Phase 1: Load datasets (3m)
-    Heretic->>Heretic: Phase 2: Extract directions (20m)
-    Heretic->>Heretic: Phase 3: Optimize (9-11 hrs)
-    Note over Heretic: 200 trials<br/>12s reload/trial<br/>with layer-wise cache
-    Heretic->>Heretic: Phase 4: Save model (5m)
-    Heretic-->>GPU: Model saved to /workspace/models
+    Bruno->>Bruno: Phase 1: Load datasets (3m)
+    Bruno->>Bruno: Phase 2: Extract directions (20m)
+    Bruno->>Bruno: Phase 3: Optimize (9-11 hrs)
+    Note over Bruno: 200 trials<br/>12s reload/trial<br/>with layer-wise cache
+    Bruno->>Bruno: Phase 4: Save model (5m)
+    Bruno-->>GPU: Model saved to /workspace/models
 
-    User->>VastCLI: heretic-vast download /workspace/models
+    User->>VastCLI: bruno-vast download /workspace/models
     VastCLI->>GPU: SSH + rsync
     GPU-->>VastCLI: Transfer 65GB
     VastCLI-->>User: Model downloaded
 
-    User->>VastCLI: heretic-vast stop
+    User->>VastCLI: bruno-vast stop
     VastCLI->>VastAPI: Destroy instance
     VastAPI->>GPU: Terminate
     GPU-->>VastAPI: Instance stopped
@@ -769,12 +769,12 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Start([heretic command]) --> CLI{CLI args<br/>provided?}
+    Start([bruno command]) --> CLI{CLI args<br/>provided?}
 
     CLI -->|Yes| UseCLI[Use CLI Value<br/>--cache-weights true]
     CLI -->|No| CheckEnv{ENV var<br/>exists?}
 
-    CheckEnv -->|Yes| UseEnv[Use Environment<br/>HERETIC_CACHE_WEIGHTS=true]
+    CheckEnv -->|Yes| UseEnv[Use Environment<br/>BRUNO_CACHE_WEIGHTS=true]
     CheckEnv -->|No| CheckTOML{config.toml<br/>exists?}
 
     CheckTOML -->|Yes| UseTOML[Use TOML Value<br/>cache_weights = true]
@@ -840,7 +840,7 @@ graph LR
 
 ```mermaid
 timeline
-    title Heretic Performance Evolution
+    title Bruno Performance Evolution
     section v1.0.x
         CPU PCA : 4-6 hours PCA : Full cache (OOM on 32B) : ~15 hour total
     section v1.0.1
@@ -882,7 +882,7 @@ flowchart LR
 
 ## Summary
 
-This document provides Mermaid-based visual diagrams for the Heretic abliteration workflow, including:
+This document provides Mermaid-based visual diagrams for the Bruno abliteration workflow, including:
 
 - High-level architecture and component interactions
 - Detailed phase breakdowns with timing information
@@ -893,4 +893,4 @@ This document provides Mermaid-based visual diagrams for the Heretic abliteratio
 - Deployment workflow with Vast.ai
 - Configuration precedence and Pareto optimization
 
-For ASCII-based detailed diagrams, see `HERETIC_WORKFLOW_DIAGRAM.md`.
+For ASCII-based detailed diagrams, see `BRUNO_WORKFLOW_DIAGRAM.md`.

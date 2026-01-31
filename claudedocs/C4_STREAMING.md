@@ -17,7 +17,7 @@ Automatic streaming for C4 dataset eliminates 30-50GB download overhead:
 
 ### Key Changes
 
-**`src/heretic/utils.py`:**
+**`src/bruno/utils.py`:**
 - Added `_parse_split_count()` to parse split notation (`train[:200]` → 200)
 - Added C4 detection and streaming in `load_prompts()`
 - Fail-fast error handling for missing config or network issues
@@ -41,7 +41,7 @@ No changes required - streaming is automatic:
 
 ```bash
 # Works unchanged with v1.1.0+
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --auto-select true \
   --cache-weights false \
   --unhelpfulness-prompts.config en

@@ -1,6 +1,6 @@
-# Heretic Cloud GPU Workflow
+# Bruno Cloud GPU Workflow
 
-This document covers cloud GPU deployment for heretic on Vast.ai and RunPod.
+This document covers cloud GPU deployment for bruno on Vast.ai and RunPod.
 
 ---
 
@@ -108,7 +108,7 @@ Required Disk = (Source Model Size × 2) + 20GB buffer
 
 ```bash
 # 32B model - caching now enabled! (v1.2.0+)
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --cache-weights true \
   --n-trials 200 \
   --unhelpfulness-prompts.config en
@@ -145,11 +145,11 @@ Or step-by-step:
 # 1. Create instance with 4x RTX 4090 (~$1.50/hr, ~2 min)
 .\runpod.ps1 vast-create-pod RTX_4090 4
 
-# 2. Install heretic (~3 min)
+# 2. Install bruno (~3 min)
 .\runpod.ps1 vast-setup
 
 # 3. Start abliteration with persistent storage (~5 min setup, then runs 5-6 hrs)
-.\runpod.ps1 vast-exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/heretic_study.db --study-name qwen32b > /workspace/heretic.log 2>&1 &"
+.\runpod.ps1 vast-exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup bruno --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/bruno_study.db --study-name qwen32b > /workspace/bruno.log 2>&1 &"
 
 # 4. Monitor progress
 .\runpod.ps1 vast-watch
@@ -169,46 +169,46 @@ Or step-by-step:
 
 ## Working Commands (USE THESE!)
 
-The `heretic-vast` CLI (Python) works. The PowerShell scripts have issues from bash.
+The `bruno-vast` CLI (Python) works. The PowerShell scripts have issues from bash.
 
-### Primary Commands (heretic-vast CLI)
+### Primary Commands (bruno-vast CLI)
 
 ```bash
 # List instances
-uv run heretic-vast list
+uv run bruno-vast list
 
 # Create instance (4x RTX 4090 for 32B model)
-uv run heretic-vast create RTX_4090 4
+uv run bruno-vast create RTX_4090 4
 
-# Setup heretic on instance
-uv run heretic-vast setup
+# Setup bruno on instance
+uv run bruno-vast setup
 
 # Run abliteration with RESUME SUPPORT
-uv run heretic-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/heretic_study.db --study-name qwen32b-abliteration > /workspace/heretic.log 2>&1 &"
+uv run bruno-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup bruno --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/bruno_study.db --study-name qwen32b-abliteration > /workspace/bruno.log 2>&1 &"
 
 # Monitor progress
-uv run heretic-vast watch
-uv run heretic-vast progress
+uv run bruno-vast watch
+uv run bruno-vast progress
 
 # Check status
-uv run heretic-vast status
+uv run bruno-vast status
 
 # View logs
-uv run heretic-vast exec "tail -100 /workspace/heretic.log"
+uv run bruno-vast exec "tail -100 /workspace/bruno.log"
 
 # Stop instance (save money)
-uv run heretic-vast stop
+uv run bruno-vast stop
 
 # Start stopped instance
-uv run heretic-vast start
+uv run bruno-vast start
 
 # Download model when complete
-uv run heretic-vast download /workspace/models
+uv run bruno-vast download /workspace/models
 ```
 
-### Direct vastai CLI (When heretic-vast Fails to Find GPUs)
+### Direct vastai CLI (When bruno-vast Fails to Find GPUs)
 
-**Problem:** `heretic-vast create` may report "No offers available" even when GPUs exist.
+**Problem:** `bruno-vast create` may report "No offers available" even when GPUs exist.
 
 **Solution:** Use direct `vastai` CLI as fallback:
 ```bash
@@ -218,18 +218,18 @@ vastai search offers "gpu_name=H200 disk_space>=200 rentable=true" --order dph_t
 # Create instance with specific offer ID
 vastai create instance <OFFER_ID> --disk 200 --image pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
 
-# Then use heretic-vast for setup/monitoring
-uv run heretic-vast list
-uv run heretic-vast setup
+# Then use bruno-vast for setup/monitoring
+uv run bruno-vast list
+uv run bruno-vast setup
 ```
 
-### Direct SSH Commands (When heretic-vast Fails)
+### Direct SSH Commands (When bruno-vast Fails)
 
 ```bash
 # Get instance info
 vastai show instances --raw | grep -E '"id":|"ssh_host":|"ssh_port":|"actual_status"'
 
-# Install heretic on running instance (replace PORT with actual port)
+# Install bruno on running instance (replace PORT with actual port)
 ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'pip install git+https://github.com/quanticsoul4772/abliteration-workflow.git'
 
 # Start training with ALL required flags
@@ -237,39 +237,39 @@ ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai '
   export HF_TOKEN=YOUR_TOKEN
   export HF_HOME=/workspace/.cache/huggingface
   cd /workspace
-  nohup heretic \
+  nohup bruno \
     --model Qwen/Qwen2.5-Coder-32B-Instruct \
     --auto-select true \
     --auto-select-path /workspace/models \
-    --storage sqlite:////workspace/heretic_study.db \
+    --storage sqlite:////workspace/bruno_study.db \
     --study-name qwen32b-abliteration \
     --cache-weights true \
     --unhelpfulness-prompts.config en \
-    > /workspace/heretic.log 2>&1 &
+    > /workspace/bruno.log 2>&1 &
   echo "Started PID: $!"
 '
 
 # Monitor logs
-ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'tail -f /workspace/heretic.log'
+ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'tail -f /workspace/bruno.log'
 
-# Check if heretic is running
-ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'ps aux | grep heretic | grep -v grep'
+# Check if bruno is running
+ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'ps aux | grep bruno | grep -v grep'
 
 # Check progress
-ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'tail -50 /workspace/heretic.log'
+ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'tail -50 /workspace/bruno.log'
 ```
 
 ---
 
-## Vast.ai CLI Reference (heretic-vast)
+## Vast.ai CLI Reference (bruno-vast)
 
-Heretic includes a dedicated Python CLI for Vast.ai with a rich terminal dashboard.
+Bruno includes a dedicated Python CLI for Vast.ai with a rich terminal dashboard.
 
 ### Installation
 
 ```bash
-# Install heretic with Vast.ai support
-pip install heretic-llm fabric rich
+# Install bruno with Vast.ai support
+pip install bruno-ai fabric rich
 ```
 
 ### Configuration
@@ -302,35 +302,35 @@ Get your API key from: https://cloud.vast.ai/account/
 
 ```bash
 # Instance Management
-heretic-vast create TIER [NUM_GPUS]  # Create instance
-heretic-vast list                     # List your instances
-heretic-vast start [ID]               # Start stopped instance
-heretic-vast stop [ID]                # Stop (pause billing)
-heretic-vast terminate ID             # Destroy permanently
+bruno-vast create TIER [NUM_GPUS]  # Create instance
+bruno-vast list                     # List your instances
+bruno-vast start [ID]               # Start stopped instance
+bruno-vast stop [ID]                # Stop (pause billing)
+bruno-vast terminate ID             # Destroy permanently
 
 # Setup & Execution
-heretic-vast setup [ID]               # Install heretic
-heretic-vast run MODEL [ID]           # Run abliteration
-heretic-vast exec "command" [ID]      # Run any command
-heretic-vast connect [ID]             # Interactive SSH
+bruno-vast setup [ID]               # Install bruno
+bruno-vast run MODEL [ID]           # Run abliteration
+bruno-vast exec "command" [ID]      # Run any command
+bruno-vast connect [ID]             # Interactive SSH
 
 # Monitoring
-heretic-vast status [ID]              # GPU status snapshot
-heretic-vast progress [ID]            # Check abliteration progress
-heretic-vast watch [ID]               # Live dashboard (Ctrl+C to exit)
+bruno-vast status [ID]              # GPU status snapshot
+bruno-vast progress [ID]            # Check abliteration progress
+bruno-vast watch [ID]               # Live dashboard (Ctrl+C to exit)
 
 # Models
-heretic-vast models [ID]              # List saved models
-heretic-vast download [MODEL] [ID]    # Download model locally
+bruno-vast models [ID]              # List saved models
+bruno-vast download [MODEL] [ID]    # Download model locally
 
 # Info
-heretic-vast tiers                    # Show GPU tier info
-heretic-vast gpus TIER                # Search available GPUs
+bruno-vast tiers                    # Show GPU tier info
+bruno-vast gpus TIER                # Search available GPUs
 ```
 
 ### Live Dashboard
 
-The `heretic-vast watch` command shows a live dashboard:
+The `bruno-vast watch` command shows a live dashboard:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -366,7 +366,7 @@ The `heretic-vast watch` command shows a live dashboard:
 
 ## Resume Support (CRITICAL!)
 
-The `--storage sqlite:////workspace/heretic_study.db --study-name qwen32b-abliteration` flags enable resume:
+The `--storage sqlite:////workspace/bruno_study.db --study-name qwen32b-abliteration` flags enable resume:
 
 - SQLite database persists on `/workspace`
 - If training stops, restart instance and run same command
@@ -376,18 +376,18 @@ The `--storage sqlite:////workspace/heretic_study.db --study-name qwen32b-ablite
 
 ```bash
 # 1. Check if instance is still running
-uv run heretic-vast list
+uv run bruno-vast list
 
 # 2. If stopped, restart it
-uv run heretic-vast start
+uv run bruno-vast start
 
 # 3. Wait for instance to start (~30 seconds)
 
 # 4. Re-run the SAME command - it will RESUME automatically
-uv run heretic-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/heretic_study.db --study-name qwen32b-abliteration > /workspace/heretic.log 2>&1 &"
+uv run bruno-vast exec "export HF_HOME=/workspace/.cache/huggingface && cd /workspace && nohup bruno --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --auto-select-path /workspace/models --storage sqlite:////workspace/bruno_study.db --study-name qwen32b-abliteration > /workspace/bruno.log 2>&1 &"
 
 # 5. Verify it's running and resumed
-uv run heretic-vast progress
+uv run bruno-vast progress
 ```
 
 ---
@@ -396,16 +396,16 @@ uv run heretic-vast progress
 
 ```bash
 # 1. Check for completed model
-uv run heretic-vast models
+uv run bruno-vast models
 
 # 2. Download model to local machine (~60GB, may take 30+ min)
-uv run heretic-vast download /workspace/models
+uv run bruno-vast download /workspace/models
 
 # Alternative: Use rsync for resumable download
 rsync -avz --progress -e "ssh -p PORT" root@ssh4.vast.ai:/workspace/models/ ./qwen32b-abliterated/
 
 # 3. STOP THE INSTANCE (stop billing!)
-uv run heretic-vast stop
+uv run bruno-vast stop
 ```
 
 ### Downloading Models from Vast.ai
@@ -415,14 +415,14 @@ uv run heretic-vast stop
 1. **Direct rsync from WSL (MOST RELIABLE)**:
    ```bash
    # From WSL Ubuntu terminal:
-   cd /mnt/c/Development/Projects/heretic
+   cd /mnt/c/Development/Projects/bruno
    mkdir -p ./models/downloaded-model
    rsync -avz --progress -e "ssh -o StrictHostKeyChecking=no -p PORT" root@ssh1.vast.ai:/workspace/models/ ./models/downloaded-model/
    ```
 
 2. **PowerShell script**: `.\runpod.ps1 vast-download-model`
 
-3. **Python CLI**: `heretic-vast download`
+3. **Python CLI**: `bruno-vast download`
 
 **SSH Key Issues from WSL:**
 WSL has its own SSH keys separate from Windows. If you get "Permission denied (publickey)":
@@ -479,19 +479,19 @@ ssh -p PORT root@HOST 'watch -n 60 df -h /workspace'
 
 **"No instance ID found"**
 ```bash
-uv run heretic-vast list  # Check if instance exists
-uv run heretic-vast create RTX_4090 4  # Create new if needed
+uv run bruno-vast list  # Check if instance exists
+uv run bruno-vast create RTX_4090 4  # Create new if needed
 ```
 
 **SSH Connection Issues**
 - **Initial deployment takes 3-5 minutes** for multi-GPU instances (NOT 30 seconds!)
 - The "Wait ~30 seconds" note refers to REBOOTS, not initial deployment
 - Wait for status to change from "loading" to "running" before attempting SSH
-- Run `uv run heretic-vast list` to check status - look for "running" in Status column
+- Run `uv run bruno-vast list` to check status - look for "running" in Status column
 - Only after status is "running", wait another 30-60 seconds for SSH to be ready
 - **DO NOT** try setup commands while instance is still "loading" - they will fail
 
-**"heretic command not found"**
+**"bruno command not found"**
 ```bash
 ssh -o StrictHostKeyChecking=no -p PORT root@ssh4.vast.ai 'pip install git+https://github.com/quanticsoul4772/abliteration-workflow.git'
 ```
@@ -523,12 +523,12 @@ ssh -p PORT root@HOST 'ls -la /workspace/*.db'
 
 ```bash
 # H200 141GB - USE THIS for 32B with caching
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --cache-weights true \
   --n-trials 200
 
 # H100 80GB - Must disable caching (slower but works)
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --cache-weights false \
   --n-trials 200
 
@@ -566,10 +566,10 @@ heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
 
 5. **Wrong instance/port** - After reboot, port may change:
    ```bash
-   uv run heretic-vast list  # Get new SSH details
+   uv run bruno-vast list  # Get new SSH details
    ```
 
-6. **Fabric vs direct SSH** - If `heretic-vast` fails but direct SSH works:
+6. **Fabric vs direct SSH** - If `bruno-vast` fails but direct SSH works:
    ```bash
    ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -p PORT root@ssh1.vast.ai "command"
    ```
@@ -599,7 +599,7 @@ eval $(ssh-agent -s) && ssh-add ~/.ssh/id_ed25519
 vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)" 2>/dev/null || echo "Key exists"
 
 # 3. Get instance ID
-INSTANCE_ID=$(uv run heretic-vast list 2>/dev/null | grep -oP '\d{8}' | head -1)
+INSTANCE_ID=$(uv run bruno-vast list 2>/dev/null | grep -oP '\d{8}' | head -1)
 
 # 4. Attach key to instance
 vastai attach ssh $INSTANCE_ID "$(cat ~/.ssh/id_ed25519.pub)"
@@ -609,7 +609,7 @@ vastai reboot instance $INSTANCE_ID
 
 # 6. Wait and get new SSH details
 sleep 45
-uv run heretic-vast list
+uv run bruno-vast list
 
 # 7. Test connection
 ssh -o StrictHostKeyChecking=no -p NEW_PORT root@ssh1.vast.ai "echo SUCCESS"
@@ -633,9 +633,9 @@ ssh -o StrictHostKeyChecking=no -p NEW_PORT root@ssh1.vast.ai "echo SUCCESS"
 
 **Resolution:** Add your SSH public key to RunPod account settings (Settings → SSH Keys) BEFORE creating pods.
 
-### Heretic Crashes with EOFError in Non-Interactive Mode
+### Bruno Crashes with EOFError in Non-Interactive Mode
 
-**Problem:** When running heretic via `nohup`, it crashes from `prompt_toolkit` because there's no TTY.
+**Problem:** When running bruno via `nohup`, it crashes from `prompt_toolkit` because there's no TTY.
 
 **Resolution:** Use `--auto-select true` flag for non-interactive operation.
 
@@ -643,11 +643,11 @@ ssh -o StrictHostKeyChecking=no -p NEW_PORT root@ssh1.vast.ai "echo SUCCESS"
 
 **Problem:** Running `.ps1` scripts from bash fails with syntax errors.
 
-**Resolution:** Use direct SSH commands or `heretic-vast` CLI instead.
+**Resolution:** Use direct SSH commands or `bruno-vast` CLI instead.
 
 ### pip install --force-reinstall Breaks Environment
 
-**Problem:** After `--force-reinstall`, heretic fails with "Could not import module".
+**Problem:** After `--force-reinstall`, bruno fails with "Could not import module".
 
 **Resolution:** Run `pip install transformers>=4.55.2`. Prevention: Never use `--force-reinstall`.
 
@@ -655,7 +655,7 @@ ssh -o StrictHostKeyChecking=no -p NEW_PORT root@ssh1.vast.ai "echo SUCCESS"
 
 **Problem:** Stopping a Vast.ai instance KILLS running processes immediately.
 
-**Resolution:** Check `heretic-vast progress` for "Models Saved" before stopping.
+**Resolution:** Check `bruno-vast progress` for "Models Saved" before stopping.
 
 ---
 
@@ -683,7 +683,7 @@ wsl --install
 
 ```powershell
 .\runpod.ps1 create-pod                      # Create pod
-.\runpod.ps1 setup                           # Install heretic
+.\runpod.ps1 setup                           # Install bruno
 .\runpod.ps1 run Qwen/Qwen3-4B-Instruct-2507 # Abliterate
 .\runpod.ps1 stop-pod                        # Stop when done
 ```
@@ -704,7 +704,7 @@ wsl --install
 .\runpod.ps1 terminate-pod  # Delete permanently
 
 # Core Commands
-.\runpod.ps1 setup          # Install heretic on pod
+.\runpod.ps1 setup          # Install bruno on pod
 .\runpod.ps1 test           # Run quick test (Qwen3-4B)
 .\runpod.ps1 run <model>    # Process any model
 .\runpod.ps1 status         # GPU status (nvidia-smi)
@@ -729,7 +729,7 @@ wsl --install
 
 ## Running Experiments
 
-Heretic includes an experiments framework for testing new behavioral directions.
+Bruno includes an experiments framework for testing new behavioral directions.
 
 ### Verbosity Spike Experiment
 
@@ -740,8 +740,8 @@ python experiments/verbosity/load_local_dataset.py
 # 2. Copy verbosity config
 cp experiments/verbosity/config.verbosity.toml config.toml
 
-# 3. Run heretic (use Qwen - not gated)
-heretic --model Qwen/Qwen2.5-7B-Instruct --auto-select true
+# 3. Run bruno (use Qwen - not gated)
+bruno --model Qwen/Qwen2.5-7B-Instruct --auto-select true
 
 # 4. Evaluate verbosity change (use 4-bit quantization for 8GB VRAM)
 python experiments/verbosity/test_comparison_4bit.py
@@ -770,7 +770,7 @@ See `experiments/verbosity/README.md` for detailed instructions.
 
 ### Critical Flags for Resume Support
 ```
---storage sqlite:////workspace/heretic_study.db
+--storage sqlite:////workspace/bruno_study.db
 --study-name qwen32b-abliteration
 ```
 
@@ -845,25 +845,25 @@ vastai create instance OFFER_ID --disk 200 --image pytorch/pytorch:2.4.0-cuda12.
 **After instance starts:**
 ```bash
 # Verify instance is running
-uv run heretic-vast list
+uv run bruno-vast list
 
 # Start training with resume support
 ssh -o StrictHostKeyChecking=no -p PORT root@HOST '
   export HF_TOKEN=YOUR_TOKEN
-  nohup heretic \
+  nohup bruno \
     --model Qwen/Qwen2.5-Coder-32B-Instruct \
     --batch-size 4 \
     --max-batch-size 8 \
     --cache-weights true \
     --auto-select true \
     --auto-select-path /workspace/models \
-    --storage sqlite:////workspace/heretic_study.db \
+    --storage sqlite:////workspace/bruno_study.db \
     --study-name qwen32b-abliteration \
     --unhelpfulness-prompts.config en \
-    > /workspace/heretic.log 2>&1 &
+    > /workspace/bruno.log 2>&1 &
   sleep 5
   ps aux | grep python | grep -v grep
-  tail -20 /workspace/heretic.log
+  tail -20 /workspace/bruno.log
 '
 ```
 
@@ -884,12 +884,12 @@ vastai destroy instance INSTANCE_ID
 ## Key Learnings (Don't Forget!)
 
 1. **Always use `--storage` and `--study-name`** for resume support
-2. **Push to `fork` remote** (abliteration-workflow), not heretic-fork
+2. **Push to `fork` remote** (abliteration-workflow), not bruno-fork
 3. **SQLite database persists on /workspace** - survives instance restarts
 4. **Kill zombie git processes** if push hangs
 5. **4x RTX 4090 = 96GB VRAM** - sufficient for 32B models
 6. **Vast.ai is 50% cheaper** than RunPod
-7. **Monitor with `heretic-vast watch`** for live dashboard
+7. **Monitor with `bruno-vast watch`** for live dashboard
 8. **Stop instance when done** - billing continues until stopped!
 9. **Weight caching NOW WORKS for 32B models!** (v1.2.0+) - Use `--cache-weights true` for 3-4 hour speedup
 10. **Set HF_TOKEN on server** for faster downloads
@@ -899,6 +899,6 @@ vastai destroy instance INSTANCE_ID
 14. **ALWAYS use 200GB disk for 32B models** - 100GB default is NOT enough
 15. **READ THIS WORKFLOW BEFORE DOING ANYTHING** - don't make assumptions
 16. **Multi-GPU instance deployment takes 3-5 minutes** - NOT 30 seconds
-17. **heretic-vast setup installs from abliteration-workflow repo** - NOT the upstream heretic repo
+17. **bruno-vast setup installs from abliteration-workflow repo** - NOT the upstream bruno repo
 18. **Verify `--cache-weights` flag exists** before starting training - old versions don't have it
-19. **The correct GitHub repo is `quanticsoul4772/abliteration-workflow`** - NOT `quanticsoul4772/heretic`
+19. **The correct GitHub repo is `quanticsoul4772/abliteration-workflow`** - NOT `quanticsoul4772/bruno`

@@ -23,7 +23,7 @@ jobs:
         run: uv sync --dev
 
       - name: Check formatting
-        run: uv run ruff format --check src/heretic/
+        run: uv run ruff format --check src/bruno/
 
       - name: Run linter
-        run: uv run ruff check src/heretic/
+        run: uv run ruff check src/bruno/

@@ -1,4 +1,4 @@
-# Heretic Abliteration Improvement Plan
+# Bruno Abliteration Improvement Plan
 
 ## ⚠️ Review Status
 
@@ -21,7 +21,7 @@ Revised:  Phase 6 → 3 → 2 → 1 → 5 → 4
 
 ## Executive Summary
 
-The current heretic implementation has **5 major gaps** that limit abliteration effectiveness:
+The current bruno implementation has **5 major gaps** that limit abliteration effectiveness:
 
 | Gap | Current State | Proposed Fix | Expected Impact |
 |-----|---------------|--------------|-----------------|
@@ -170,9 +170,9 @@ use_pca_extraction = true
 ```
 
 ### Files to Modify
-- `src/heretic/model.py` - Add PCA extraction and multi-direction abliteration
-- `src/heretic/config.py` - Add new config parameters
-- `src/heretic/main.py` - Update to use new extraction method
+- `src/bruno/model.py` - Add PCA extraction and multi-direction abliteration
+- `src/bruno/config.py` - Add new config parameters
+- `src/bruno/main.py` - Update to use new extraction method
 - `config.default.toml` - Document new parameters
 
 ### Estimated Lines of Code: ~150
@@ -326,8 +326,8 @@ evasive_patterns = []
 ```
 
 ### Files to Modify
-- `src/heretic/evaluator.py` - Update refusal detection
-- `src/heretic/config.py` - Add detection config parameters
+- `src/bruno/evaluator.py` - Update refusal detection
+- `src/bruno/config.py` - Add detection config parameters
 - `config.default.toml` - Document new markers and options
 
 ### Estimated Lines of Code: ~80
@@ -440,9 +440,9 @@ coherence_weight = 0.1
 ```
 
 ### Files to Modify
-- `src/heretic/model.py` - Add multi-token logprob methods
-- `src/heretic/evaluator.py` - Update KL computation, add coherence
-- `src/heretic/config.py` - Add metric config parameters
+- `src/bruno/model.py` - Add multi-token logprob methods
+- `src/bruno/evaluator.py` - Update KL computation, add coherence
+- `src/bruno/config.py` - Add metric config parameters
 - `config.default.toml` - Document new options
 
 ### Estimated Lines of Code: ~100
@@ -599,9 +599,9 @@ reextract_per_trial = false
 ```
 
 ### Files to Modify
-- `src/heretic/model.py` - Add iterative ablation method
-- `src/heretic/main.py` - Integrate with optimization loop
-- `src/heretic/config.py` - Add iteration parameters
+- `src/bruno/model.py` - Add iterative ablation method
+- `src/bruno/main.py` - Integrate with optimization loop
+- `src/bruno/config.py` - Add iteration parameters
 - `config.default.toml` - Document iteration options
 
 ### Estimated Lines of Code: ~200
@@ -715,9 +715,9 @@ column = "text"
 ```
 
 ### Files to Modify
-- `src/heretic/model.py` - Add orthogonalization methods
-- `src/heretic/main.py` - Apply orthogonalization before abliteration
-- `src/heretic/config.py` - Add orthogonalization config
+- `src/bruno/model.py` - Add orthogonalization methods
+- `src/bruno/main.py` - Apply orthogonalization before abliteration
+- `src/bruno/config.py` - Add orthogonalization config
 - `config.default.toml` - Document orthogonalization options
 
 ### Estimated Lines of Code: ~100

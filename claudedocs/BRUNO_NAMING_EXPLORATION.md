@@ -2,13 +2,13 @@
 
 **DECISION:** BRUNO (named after Giordano Bruno)
 **Personal Connection:** User has Bruno's book on nightstand, reads it nightly
-**Perfect Fit:** Ultimate heretic - burned at stake for being right about infinite universe
+**Perfect Fit:** Ultimate bruno - burned at stake for being right about infinite universe
 
 ---
 
 ## Why Bruno is the PERFECT Name
 
-### Giordano Bruno (1548-1600) - The Ultimate Heretic
+### Giordano Bruno (1548-1600) - The Ultimate Bruno
 
 **His Infinite Universe Theory:**
 - Universe is infinite (not finite as Church taught)
@@ -67,7 +67,7 @@
 - **Tagline:** "Infinite Behavioral Possibilities"
 
 **Pros:**
-- One word, like "Heretic"
+- One word, like "Bruno"
 - Personal connection
 - Easy to remember
 
@@ -86,7 +86,7 @@
 
 **Why this is THE ONE:**
 - Compound structure (meets your criteria)
-- Bruno = philosophical heretic inspiration
+- Bruno = philosophical bruno inspiration
 - Forge = creating/shaping with precision
 - "Forge infinite worlds" parallels Bruno's infinite universe
 - Accessible + philosophical
@@ -160,7 +160,7 @@
 > networks, challenging AI alignment orthodoxy through mathematical
 > precision.
 >
-> Evolved from Heretic by Philipp Emanuel Weidmann, enhanced with
+> Evolved from Bruno by Philipp Emanuel Weidmann, enhanced with
 > layer-wise caching, sacred direction preservation, and comprehensive
 > optimization framework.
 
@@ -195,7 +195,7 @@ Like Giordano Bruno's infinite universe, explore infinite behavioral
 possibilities. Surgical modification of LLM behaviors through activation
 direction analysis, layer-wise caching, and Optuna optimization.
 
-Evolved from Heretic with 55-75% memory reduction, 6-12x faster reload,
+Evolved from Bruno with 55-75% memory reduction, 6-12x faster reload,
 and comprehensive behavioral direction framework.
 ```
 
@@ -217,11 +217,11 @@ and comprehensive behavioral direction framework.
 
 ## What This Name Captures
 
-**From Heretic to Bruno:**
+**From Bruno to Bruno:**
 - Same rebellious spirit
 - Greater philosophical depth
 - Personal meaning for you
-- Ultimate heretic story
+- Ultimate bruno story
 - Infinite possibilities vision
 
 **Technical + Philosophical:**
@@ -263,7 +263,7 @@ Then I'll help you execute the migration:
 
 ## Why Giordano Bruno is PERFECT for This Project
 
-### The Ultimate Heretic
+### The Ultimate Bruno
 
 **Giordano Bruno (1548-1600)**
 - Dominican monk who questioned everything
@@ -318,7 +318,7 @@ Then I'll help you execute the migration:
 **Pros:**
 - One word, maximum simplicity
 - Personal connection for you
-- Honors ultimate heretic
+- Honors ultimate bruno
 - Easy to say, spell, remember
 
 **Cons:**
@@ -337,7 +337,7 @@ Then I'll help you execute the migration:
 
 **Why it works:**
 - Compound structure (meets your criteria)
-- Bruno = the heretic inspiration
+- Bruno = the bruno inspiration
 - Forge = creating/shaping (transformation)
 - Philosophical + accessible
 
@@ -422,7 +422,7 @@ Then I'll help you execute the migration:
 **Tagline Power:**
 - "Forge Infinite Behavioral Worlds" (echoes Bruno's infinite worlds)
 - "Where Bruno Saw Infinite Worlds, We Forge Infinite Behaviors"
-- "From Heretic to Bruno: The Ultimate Heretic"
+- "From Bruno to Bruno: The Ultimate Bruno"
 
 **CLI elegance:**
 ```bash
@@ -439,10 +439,10 @@ I'll create a detailed migration plan in the next document showing EVERYTHING th
 
 **Quick preview of scope:**
 - Repository name: abliteration-workflow → bruno-forge
-- Package name: heretic-llm → bruno-forge
-- Python package: src/heretic → src/bruno
-- CLI command: heretic → bruno
-- All imports: from heretic → from bruno
+- Package name: bruno-llm → bruno-forge
+- Python package: src/bruno → src/bruno
+- CLI command: bruno → bruno
+- All imports: from bruno → from bruno
 - All documentation references
 - PyPI publication
 - Docker images

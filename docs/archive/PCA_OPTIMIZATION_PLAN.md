@@ -310,7 +310,7 @@ def get_refusal_directions_pca(self, good_residuals, bad_residuals, n_components
 
 ### Phase 1: Quick Fix - GPU Eigendecomposition (2-4 hours)
 
-**File:** `src/heretic/model.py`
+**File:** `src/bruno/model.py`
 **Lines:** 690-769
 
 **Changes:**
@@ -330,7 +330,7 @@ def get_refusal_directions_pca(self, good_residuals, bad_residuals, n_components
 
 ### Phase 2: Add Approximate PCA for Large Models (4-6 hours)
 
-**File:** `src/heretic/model.py`
+**File:** `src/bruno/model.py`
 
 **Changes:**
 1. Add hidden_dim threshold check (line 714)
@@ -348,7 +348,7 @@ def get_refusal_directions_pca(self, good_residuals, bad_residuals, n_components
 
 ### Phase 3: Parallelize Across Layers (8-12 hours)
 
-**File:** `src/heretic/model.py`
+**File:** `src/bruno/model.py`
 
 **Changes:**
 1. Vectorize covariance computation
@@ -366,7 +366,7 @@ def get_refusal_directions_pca(self, good_residuals, bad_residuals, n_components
 
 ### Phase 4: Add PCA Result Caching (4-6 hours)
 
-**File:** `src/heretic/model.py`, `src/heretic/config.py`
+**File:** `src/bruno/model.py`, `src/bruno/config.py`
 
 **Changes:**
 1. Add cache directory config
@@ -411,7 +411,7 @@ def get_refusal_directions_pca(self, good_residuals, bad_residuals, n_components
 
 ## Code Changes for Strategy 1 (GPU Eigendecomposition)
 
-### File: src/heretic/model.py
+### File: src/bruno/model.py
 
 **Current code (lines 718-764):**
 ```python
@@ -572,7 +572,7 @@ print(f"32B model PCA: {elapsed:.1f} seconds (expect: <1200s / 20 min)")
 
 **Priority:** High (saves hours on every large model run)
 
-**File to modify:** `src/heretic/model.py` (single file)
+**File to modify:** `src/bruno/model.py` (single file)
 **Lines to change:** ~30 lines in `get_refusal_directions_pca` method
 **Testing:** 2-3 hours (correctness + benchmarking)
 **Total effort:** 4-6 hours

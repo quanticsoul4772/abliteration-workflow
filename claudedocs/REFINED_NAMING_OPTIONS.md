@@ -4,7 +4,7 @@
 - Philosophical depth (primary)
 - Scholarly perception
 - Compound structure
-- Honors heretic spirit without requiring explicit "Heretic"
+- Honors bruno spirit without requiring explicit "Bruno"
 - Resonates with "Orthogon" direction
 
 ---
@@ -15,10 +15,10 @@
 **Meaning:** "Choice Through Orthogonalization"
 
 **Why it works:**
-- **Hairesis** = Greek "choice" (original heretic etymology)
+- **Hairesis** = Greek "choice" (original bruno etymology)
 - **Orthogon** = The core mathematical technique
 - Scholarly gravitas with technical precision
-- Honors origin without using corrupted "heretic" term
+- Honors origin without using corrupted "bruno" term
 - Returns to pre-religious pure meaning
 
 **Tagline:** "Neural Behavior Choice Through Orthogonal Engineering"
@@ -191,7 +191,7 @@
 4. **Metanoia Orthogon** - Patristic theology + mathematics
 5. **Apothesis Orthogon** - Liberation philosophy + technique
 
-### Honors "Heretic" Spirit Best
+### Honors "Bruno" Spirit Best
 1. **Hairesis Orthogon** - Literal etymology before corruption
 2. **Autonomos Orthogon** - Core concept (self-law vs imposed law)
 3. **Eleutheria Orthogon** - Freedom from constraints
@@ -212,7 +212,7 @@
 
 **1. Perfect Etymology**
 - Returns to pure Greek "choice" before religious weaponization
-- Honors heretic's true meaning without using corrupted form
+- Honors bruno's true meaning without using corrupted form
 - Scholarly and sophisticated
 
 **2. Technical Precision**
@@ -231,7 +231,7 @@
 - Strong brand identity
 
 **5. Captures Evolution**
-- From "heretic" (reactive rebellion) to "hairesis" (proactive choice)
+- From "bruno" (reactive rebellion) to "hairesis" (proactive choice)
 - From removing constraints to enabling selection
 - From single direction to multiple behavioral choices
 
@@ -241,7 +241,7 @@
 - "Restoring Choice to Neural Intelligence"
 
 **README first line:**
-> Hairesis Orthogon is a framework for surgical modification of language model behaviors through activation direction analysis and orthogonal projection. The name derives from the Greek *hairesis* (choice) - honoring the original meaning before it became "heretic."
+> Hairesis Orthogon is a framework for surgical modification of language model behaviors through activation direction analysis and orthogonal projection. The name derives from the Greek *hairesis* (choice) - honoring the original meaning before it became "bruno."
 
 ---
 

@@ -1,4 +1,4 @@
-# Heretic Implementation Plan
+# Bruno Implementation Plan
 **Based on Codebase Analysis - 2026-01-28**
 **Last Updated: 2026-01-29 (Post-optimization review)**
 
@@ -53,7 +53,7 @@ Every task must meet these criteria before being marked complete:
 
 - [ ] Code merged to main branch
 - [ ] Tests pass (>70% coverage maintained)
-- [ ] Ruff linting passes (`uv run ruff check src/heretic/`)
+- [ ] Ruff linting passes (`uv run ruff check src/bruno/`)
 - [ ] Documentation updated (CLAUDE.md, README.md as appropriate)
 - [ ] CHANGELOG.md entry added (if user-facing change)
 - [ ] Peer review completed (or self-review for small changes)
@@ -100,7 +100,7 @@ cat >> pyproject.toml << EOF
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "--cov=src/heretic --cov-report=term-missing"
+addopts = "--cov=src/bruno --cov-report=term-missing"
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
     "integration: marks integration tests",
@@ -126,7 +126,7 @@ uv run pytest
 
 **tests/conftest.py:** (CORRECTED - proper mocking approach)
 ```python
-"""Pytest fixtures for heretic tests.
+"""Pytest fixtures for bruno tests.
 
 IMPORTANT: This file must be at tests/conftest.py for auto-discovery.
 DO NOT place in tests/fixtures/ subdirectory.
@@ -143,7 +143,7 @@ def mock_settings():
     Note: Must patch load_prompts before creating Evaluator,
     as Evaluator.__init__ calls load_prompts immediately.
     """
-    from heretic.config import Settings
+    from bruno.config import Settings
 
     # Create real Settings object with minimal config
     # This avoids issues with Mock not having proper Pydantic behavior
@@ -177,7 +177,7 @@ def mock_tokenizer():
 def mock_model(mock_tokenizer):
     """Mock Model object for testing.
 
-    This mocks the heretic Model class, not the HuggingFace model.
+    This mocks the bruno Model class, not the HuggingFace model.
     """
     model = MagicMock()
     model.tokenizer = mock_tokenizer
@@ -231,7 +231,7 @@ class TestRefusalDetection:
 
         Patches load_prompts and model methods to avoid real inference.
         """
-        with patch('heretic.evaluator.load_prompts') as mock_load:
+        with patch('bruno.evaluator.load_prompts') as mock_load:
             # Return minimal prompt lists
             mock_load.return_value = ["test prompt"]
 
@@ -240,10 +240,10 @@ class TestRefusalDetection:
                 mock_logprobs.return_value = torch.randn(1, 32000)
 
                 # Patch count_refusals to avoid inference during init
-                with patch('heretic.evaluator.Evaluator.count_refusals') as mock_count:
+                with patch('bruno.evaluator.Evaluator.count_refusals') as mock_count:
                     mock_count.return_value = 1
 
-                    from heretic.evaluator import Evaluator
+                    from bruno.evaluator import Evaluator
                     evaluator = Evaluator(mock_settings, mock_model)
 
         return evaluator
@@ -306,7 +306,7 @@ from pydantic import ValidationError
 
 def test_settings_defaults():
     """Test default settings values."""
-    from heretic.config import Settings
+    from bruno.config import Settings
 
     settings = Settings(model="test-model")
 
@@ -318,7 +318,7 @@ def test_settings_defaults():
 
 def test_settings_validation_requires_model():
     """Test Pydantic validation catches missing model."""
-    from heretic.config import Settings
+    from bruno.config import Settings
 
     with pytest.raises(ValidationError):
         Settings()  # Missing required 'model' field
@@ -326,7 +326,7 @@ def test_settings_validation_requires_model():
 
 def test_settings_new_performance_options():
     """Test new performance optimization settings."""
-    from heretic.config import Settings
+    from bruno.config import Settings
 
     settings = Settings(
         model="test",
@@ -340,7 +340,7 @@ def test_settings_new_performance_options():
 
 def test_settings_storage_and_study_name():
     """Test Optuna persistence settings."""
-    from heretic.config import Settings
+    from bruno.config import Settings
 
     settings = Settings(
         model="test",
@@ -375,7 +375,7 @@ def test_settings_storage_and_study_name():
 
 **Implementation:**
 ```python
-# File: src/heretic/vast.py
+# File: src/bruno/vast.py
 # Location: VastConfig.from_env() method
 
 import re
@@ -411,14 +411,14 @@ import pytest
 def test_api_key_validation_valid():
     """Test valid API keys are accepted."""
     os.environ["VAST_API_KEY"] = "abc123-DEF_456"
-    from heretic.vast import VastConfig
+    from bruno.vast import VastConfig
     config = VastConfig.from_env()  # Should pass
     del os.environ["VAST_API_KEY"]
 
 def test_api_key_validation_rejects_semicolon():
     """Test semicolon injection is blocked."""
     os.environ["VAST_API_KEY"] = "key; rm -rf /"
-    from heretic.vast import VastConfig
+    from bruno.vast import VastConfig
     with pytest.raises(ValueError, match="invalid characters"):
         VastConfig.from_env()
     del os.environ["VAST_API_KEY"]
@@ -426,7 +426,7 @@ def test_api_key_validation_rejects_semicolon():
 def test_api_key_validation_rejects_backticks():
     """Test backtick injection is blocked."""
     os.environ["VAST_API_KEY"] = "key`whoami`"
-    from heretic.vast import VastConfig
+    from bruno.vast import VastConfig
     with pytest.raises(ValueError, match="invalid characters"):
         VastConfig.from_env()
     del os.environ["VAST_API_KEY"]
@@ -513,7 +513,7 @@ export DDGS_REGION=us-en  # US English results
 
 **1. Add OOM detection and recovery to model.py:**
 ```python
-# File: src/heretic/model.py
+# File: src/bruno/model.py
 
 import gc
 from contextlib import contextmanager
@@ -549,7 +549,7 @@ class BatchSizeError(Exception):
 
 **2. Add memory monitoring utility:**
 ```python
-# File: src/heretic/utils.py
+# File: src/bruno/utils.py
 
 def get_gpu_memory_info() -> dict:
     """Get current GPU memory usage.
@@ -575,7 +575,7 @@ def get_gpu_memory_info() -> dict:
 
 **3. Add graceful shutdown on repeated OOM:**
 ```python
-# File: src/heretic/main.py (in optimization loop)
+# File: src/bruno/main.py (in optimization loop)
 
 oom_count = 0
 MAX_OOM_RETRIES = 3
@@ -587,7 +587,7 @@ except BatchSizeError:
     if oom_count >= MAX_OOM_RETRIES:
         print(f"[red]Repeated OOM errors ({oom_count}). Saving progress and exiting.[/]")
         # Progress is already saved via Optuna storage
-        print(f"[yellow]Resume with: heretic {settings.model} --storage {settings.storage}[/]")
+        print(f"[yellow]Resume with: bruno {settings.model} --storage {settings.storage}[/]")
         return
 
     # Reduce batch size and retry
@@ -676,10 +676,10 @@ The plan originally claimed "~30% compute savings" from Optuna pruning. This req
 2. **Run both modes:**
    ```bash
    # Multi-objective (current default)
-   heretic Qwen/Qwen2.5-7B-Instruct --optimization-mode multi --n-trials 200 --compile
+   bruno Qwen/Qwen2.5-7B-Instruct --optimization-mode multi --n-trials 200 --compile
 
    # Single-objective (new, enables pruning)
-   heretic Qwen/Qwen2.5-7B-Instruct --optimization-mode single --n-trials 200 --compile --kl-weight 0.5
+   bruno Qwen/Qwen2.5-7B-Instruct --optimization-mode single --n-trials 200 --compile --kl-weight 0.5
    ```
 
 3. **Metrics to track:**
@@ -766,7 +766,7 @@ This task is significantly more complex than originally estimated. Real-world te
 
 **Option A: Quantization-Enabled Parallel Trials (Future)**
 ```python
-# Requires implementing 4-bit quantization in heretic
+# Requires implementing 4-bit quantization in bruno
 # 32B model in 4-bit: ~16GB per instance
 # 4× RTX 4090 (96GB total): Could run 5-6 parallel trials
 # Speedup: ~4-5x (accounting for quantization overhead)
@@ -854,9 +854,9 @@ if __name__ == "__main__":
         print("Usage: migrate_optuna_study.py <source_url> <target_url> <study_name>")
         print("\nExample:")
         print("  python migrate_optuna_study.py \\")
-        print("    sqlite:///heretic_study.db \\")
-        print("    postgresql://heretic:heretic@localhost/heretic_study \\")
-        print("    heretic_study")
+        print("    sqlite:///bruno_study.db \\")
+        print("    postgresql://bruno:bruno@localhost/bruno_study \\")
+        print("    bruno_study")
         sys.exit(1)
 
     migrate_study(sys.argv[1], sys.argv[2], sys.argv[3])
@@ -885,7 +885,7 @@ if __name__ == "__main__":
 
 **1. SQLite corruption handling:**
 ```python
-# File: src/heretic/main.py
+# File: src/bruno/main.py
 
 def load_or_create_study(storage_url: str, study_name: str):
     """Load existing study or create new one with corruption handling."""
@@ -938,10 +938,10 @@ def test_resume_after_interruption():
     study_name = "test_resume"
 
     # Run 5 trials, then "crash"
-    # ... run heretic with n_trials=5 ...
+    # ... run bruno with n_trials=5 ...
 
     # Resume and verify
-    # ... run heretic with same storage/study_name ...
+    # ... run bruno with same storage/study_name ...
     # ... verify trials continue from 6 ...
 
     # Cleanup
@@ -996,7 +996,7 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Run unit tests
-        run: uv run pytest -m "not slow" --cov=src/heretic --cov-report=xml
+        run: uv run pytest -m "not slow" --cov=src/bruno --cov-report=xml
 
       - name: Check coverage threshold
         run: uv run coverage report --fail-under=70
@@ -1067,7 +1067,7 @@ repos:
 **Effort:** 24-36 hours (revised from 20-30h for backward compat)
 **Impact:** Enables community contributions and experimentation
 **Dependencies:** None
-**Status:** DONE - src/heretic/extractors/ package with base class and registry
+**Status:** DONE - src/bruno/extractors/ package with base class and registry
 
 **Note:** When implementing, do NOT use `Settings._default_settings()` - this method doesn't exist. Instead:
 ```python
@@ -1075,7 +1075,7 @@ repos:
 settings = Settings._default_settings()
 
 # CORRECT:
-from heretic.config import Settings
+from bruno.config import Settings
 settings = Settings(model="placeholder")  # Create with defaults
 ```
 
@@ -1096,7 +1096,7 @@ settings = Settings(model="placeholder")  # Create with defaults
 **Effort:** 16-24 hours
 **Impact:** Better observability for long experiments
 **Dependencies:** None
-**Status:** DONE - src/heretic/logging.py with structlog support
+**Status:** DONE - src/bruno/logging.py with structlog support
 
 *(Implementation unchanged from original plan)*
 
@@ -1105,7 +1105,7 @@ settings = Settings(model="placeholder")  # Create with defaults
 **Acceptance Criteria:**
 - [ ] structlog configured and working
 - [ ] main.py uses structured logging
-- [ ] JSON logs written to heretic.log
+- [ ] JSON logs written to bruno.log
 - [ ] Optional Prometheus metrics functional
 - [ ] Documentation updated
 
@@ -1226,9 +1226,9 @@ parallel_trials = false  # Rollback to single-GPU
 **Rollback PostgreSQL → SQLite:**
 ```bash
 python scripts/migrate_optuna_study.py \
-  postgresql://localhost/heretic_study \
-  sqlite:///heretic_study.db \
-  heretic_study
+  postgresql://localhost/bruno_study \
+  sqlite:///bruno_study.db \
+  bruno_study
 ```
 
 ### Phase 3 Rollbacks
