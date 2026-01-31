@@ -27,7 +27,7 @@ import logging.handlers
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Check if structlog is available (optional dependency)
 try:
