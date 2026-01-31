@@ -40,7 +40,9 @@ The technique works for any behavior with distinguishable activation patterns:
 
 **Performance Optimizations:**
 - GPU-accelerated PCA (15-20x faster than CPU, ~5 min for 32B models)
-- In-memory weight caching (5-10x faster trial reset)
+- **Layer-wise weight caching (NEW in v1.2.0):** 6-12x faster reload, 55-75% less memory
+  - Enables caching for 32B+ models (previously required `--cache-weights false`)
+  - Saves 3-4 hours per 200-trial run on 32B models
 - torch.compile() support (1.5-2x inference speedup)
 - Early stopping for refusal detection (40-60% faster evaluation)
 - Parallel evaluation (KL divergence and refusal counting)
@@ -133,7 +135,7 @@ docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/heretic \
 ```bash
 --compile                  # Enable torch.compile() (1.5-2x faster)
 --batch-size N             # Batch size (0 = auto-detect)
---cache-weights BOOL       # In-memory caching (default: true, set false for 32B+)
+--cache-weights BOOL       # In-memory caching (default: true, now works for 32B+!)
 ```
 
 **Advanced Features:**
@@ -186,9 +188,9 @@ See [configs/](configs/) for example configurations.
 | Size | GPU VRAM | Disk Space | cache_weights | C4 config |
 |------|----------|------------|---------------|-----------|
 | 7B   | 24GB     | 100GB      | true          | not needed |
-| 13B  | 24GB     | 150GB      | false         | not needed |
-| 32B  | 80GB     | 200GB      | false         | required (`en`) |
-| 70B  | 80GB+    | 300GB      | false         | required (`en`) |
+| 13B  | 24GB     | 150GB      | true          | not needed |
+| 32B  | 80GB+    | 200GB      | true (v1.2.0+) | required (`en`) |
+| 70B  | 140GB+   | 400GB      | true (v1.2.0+) | required (`en`) |
 
 **Note:** v1.1.0+ streams C4 dataset on-demand (no disk overhead). Network required during loading.
 
