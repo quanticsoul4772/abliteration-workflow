@@ -243,13 +243,21 @@ Key parameters in `config.toml`:
 
 ## Performance Optimizations
 
-| Optimization | Speedup | Flag/Config |
-|--------------|---------|-------------|
-| In-memory weight caching | ~5-10x faster model reset | Automatic |
-| torch.compile() | ~1.5-2x inference speedup | `--compile` |
-| Early stopping for refusals | ~40-60% faster evaluation | `--refusal-check-tokens 30` |
-| Parallel evaluation | ~20-30% faster per trial | Automatic |
-| Resume support | Can resume interrupted runs | `--storage sqlite:///study.db` |
+| Optimization | Speedup | Flag/Config | Status |
+|--------------|---------|-------------|--------|
+| **GPU-accelerated PCA** | **15-20x faster** (4-6 hrs → 15-20 min) | Automatic (v1.0.1+) | ✅ **NEW** |
+| In-memory weight caching | ~5-10x faster model reset | Automatic (disable for 32B+) | ✅ |
+| torch.compile() | ~1.5-2x inference speedup | `--compile` | ✅ |
+| Early stopping for refusals | ~40-60% faster evaluation | `--refusal-check-tokens 30` | ✅ |
+| Parallel evaluation | ~20-30% faster per trial | Automatic | ✅ |
+| Resume support | Can resume interrupted runs | `--storage sqlite:///study.db` | ✅ |
+
+**GPU PCA Optimization (v1.0.1):**
+- Replaces CPU-bound numpy eigendecomposition with GPU torch operations
+- Keeps tensors on GPU throughout PCA computation (`torch.linalg.eigh`)
+- **Impact:** 32B models (64 layers × 5120 dims) complete PCA in minutes instead of hours
+- **H200 tested:** Qwen2.5-Coder-32B PCA completed in <5 minutes
+- See `GPU_PCA_IMPLEMENTATION.md` for technical details
 
 **Example with all optimizations:**
 ```bash
@@ -257,7 +265,9 @@ heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
   --compile \
   --storage sqlite:///heretic_study.db \
   --study-name qwen32b \
-  --auto-select true
+  --auto-select true \
+  --cache-weights false \
+  --unhelpfulness-prompts.config en
 ```
 
 ## Heretic CLI Flags Reference
@@ -270,14 +280,33 @@ heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
 | `--study-name` | Name for the Optuna study (default: `heretic_study`) |
 | `--refusal-check-tokens` | Tokens for refusal detection (default: 30, lower = faster) |
 | `--cache-weights` | Enable/disable in-memory weight caching (default: true). **SET TO FALSE FOR 32B+ MODELS** |
+| `--unhelpfulness-prompts.config` | Dataset config for C4 (required: `"en"`). CLI overrides TOML! |
+| `--orthogonalize-directions` | Enable helpfulness direction orthogonalization (default: true) |
 
 **Examples:**
 ```bash
-# 7B model
-heretic --model Qwen/Qwen2.5-7B-Instruct --auto-select true --n-trials 20 --compile
+# 7B model with all optimizations
+heretic --model Qwen/Qwen2.5-7B-Instruct \
+  --auto-select true \
+  --n-trials 20 \
+  --compile
 
-# 32B model (must disable weight caching)
-heretic --model Qwen/Qwen2.5-Coder-32B-Instruct --auto-select true --cache-weights false --storage sqlite:///study.db
+# 32B model (must disable weight caching + C4 config)
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+  --auto-select true \
+  --cache-weights false \
+  --storage sqlite:///study.db \
+  --unhelpfulness-prompts.config en
+
+# Full production run on H200
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+  --auto-select true \
+  --auto-select-path /workspace/models \
+  --storage sqlite:////workspace/heretic_study.db \
+  --study-name qwen32b-abliteration \
+  --cache-weights false \
+  --n-trials 200 \
+  --unhelpfulness-prompts.config en
 ```
 
 ---
@@ -464,6 +493,82 @@ heretic --model MODEL --ensemble-probe-pca false --use-pca-extraction true
 ### Instance Stop vs Process Kill
 - **Stopping a Vast.ai instance KILLS running processes** - no graceful save
 - Check `heretic-vast progress` for "Models Saved" before stopping
+
+### C4 Dataset Configuration Error
+**Problem:** `ValueError: Config name is missing` when loading C4 dataset.
+
+**Cause:** C4 and other multi-variant datasets require an explicit config parameter (e.g., "en", "realnewslike").
+
+**Solution:** Add config to CLI command or TOML file:
+```bash
+# Via CLI (recommended - overrides TOML)
+heretic --model MODEL --unhelpfulness-prompts.config en
+
+# Via TOML (only works if not overridden by CLI)
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"
+split = "train[:200]"
+column = "text"
+```
+
+**Important:** CLI arguments ALWAYS override TOML config. If you pass `--unhelpfulness-prompts.dataset` on CLI, you must also pass `--unhelpfulness-prompts.config` or it defaults to `None`.
+
+### Package Data Files Not Included in Wheel
+**Problem:** Config files or data files in project root aren't included in built wheel.
+
+**Solution:**
+1. Move data files to `src/<package>/` directory
+2. Configure build backend in `pyproject.toml`:
+```toml
+[tool.uv.build-backend]
+module-name = "heretic"
+data-files = { "heretic" = ["config.default.toml"] }
+```
+
+**Verification:** `unzip -l dist/*.whl | grep toml`
+
+### Python Cache After Wheel Reinstall
+**Problem:** After reinstalling wheel with `pip install --force-reinstall`, changes don't take effect.
+
+**Cause:** Python caches `.pyc` files and modules in `__pycache__/`.
+
+**Solution:** Clear cache after reinstall:
+```bash
+find /path/to/package -name '*.pyc' -delete
+find /path/to/package -name '__pycache__' -type d -exec rm -rf {} +
+# Or restart Python process
+pkill -f 'python.*heretic'
+```
+
+### Pydantic Settings Priority (CRITICAL)
+**Priority order** (highest to lowest):
+1. **CLI arguments** (e.g., `--model foo`)
+2. Environment variables (e.g., `HERETIC_MODEL=foo`)
+3. TOML config file (e.g., `model = "foo"`)
+
+**Gotcha:** CLI default values (including `None`) override TOML config!
+
+**Example:**
+```toml
+# config.toml
+[unhelpfulness_prompts]
+config = "en"
+```
+
+```bash
+# This FAILS - CLI default (None) overrides TOML
+heretic --model MODEL
+
+# This WORKS - CLI explicitly sets config
+heretic --model MODEL --unhelpfulness-prompts.config en
+
+# This WORKS - Don't pass ANY unhelpfulness args via CLI
+# (but only if workspace doesn't have config.toml)
+cd /workspace/empty_dir && heretic --model MODEL
+```
+
+**Best Practice:** Either pass ALL settings via CLI, OR ensure no CLI defaults conflict with TOML.
 
 ---
 

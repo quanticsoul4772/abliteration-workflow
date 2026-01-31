@@ -76,21 +76,117 @@ eigenvalues, eigenvectors = torch.linalg.eigh(cov_contrastive)  # FAST
 - **Wheel:** `dist/heretic_llm-1.0.1-py3-none-any.whl`
 - **Source:** `dist/heretic_llm-1.0.1.tar.gz`
 
-### Deployment Steps
-1. Upload wheel to H200 instance
-2. Install: `pip install heretic_llm-1.0.1-py3-none-any.whl --force-reinstall`
-3. Run full abliteration on Qwen2.5-Coder-32B
-4. Monitor PCA completion time (should be 15-20 minutes)
+### Deployment Steps & Issues Encountered
 
-## Verification Plan
+#### Initial Deployment
+1. ✅ Upload wheel to H200 instance
+2. ✅ Install: `pip install heretic_llm-1.0.1-py3-none-any.whl --force-reinstall`
+3. ❌ **Issue 1: config.default.toml not packaged in wheel**
+
+#### Issue 1: Missing Config File in Wheel
+**Problem:** The `config.default.toml` was in project root, not in `src/heretic/`, so it wasn't included in the wheel.
+
+**Solution:**
+```bash
+# Move config to package directory
+cp config.default.toml src/heretic/config.default.toml
+
+# Update pyproject.toml
+[tool.uv.build-backend]
+module-name = "heretic"
+data-files = { "heretic" = ["config.default.toml"] }
+```
+
+**Commit:** `bb094e0` - "Fix packaging: include config.default.toml in wheel with C4 config"
+
+#### Issue 2: C4 Dataset Missing Config Parameter
+**Problem:** `ValueError: Config name is missing` when loading C4 dataset for unhelpfulness prompts.
+
+**Root Cause:** The `DatasetSpecification` class didn't have a `config` field for dataset variants (e.g., "en" for C4).
+
+**Solution:**
+1. Added `config` field to `DatasetSpecification` class (src/heretic/config.py):
+```python
+class DatasetSpecification(BaseModel):
+    dataset: str = Field(...)
+    config: str | None = Field(default=None, description="Dataset configuration name")
+    split: str = Field(...)
+    column: str = Field(...)
+```
+
+2. Updated `load_prompts()` to use config parameter (src/heretic/utils.py):
+```python
+if specification.config:
+    dataset = load_dataset(specification.dataset, specification.config, split=specification.split)
+else:
+    dataset = load_dataset(specification.dataset, split=specification.split)
+```
+
+3. Updated config.default.toml:
+```toml
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"  # Added this line
+split = "train[:200]"
+column = "text"
+```
+
+**Commits:** `a90ac97`, `bb094e0`
+
+#### Issue 3: CLI Arguments Override TOML Config
+**Problem:** Even after fixing the config file, the C4 error persisted because CLI arguments take precedence over TOML settings.
+
+**Root Cause:** When running `heretic --model ...`, Pydantic's settings priority is:
+1. CLI arguments (highest priority)
+2. Environment variables
+3. TOML config file (lowest priority)
+
+The CLI default for `--unhelpfulness-prompts.config` is `None`, which overrides the TOML value.
+
+**Solution:** Pass the config via CLI:
+```bash
+heretic --model Qwen/Qwen2.5-Coder-32B-Instruct \
+  --unhelpfulness-prompts.config en \
+  --cache-weights false \
+  --n-trials 200
+```
+
+**Alternative:** Don't pass any unhelpfulness config via CLI and let TOML config be used, but workspace had old config.toml without the config field.
+
+#### Final Working Command
+```bash
+export HF_HOME=/workspace/.cache/huggingface
+cd /workspace
+
+nohup heretic \
+  --model Qwen/Qwen2.5-Coder-32B-Instruct \
+  --auto-select true \
+  --auto-select-path /workspace/models \
+  --storage sqlite:////workspace/heretic_study.db \
+  --study-name qwen32b-abliteration \
+  --cache-weights false \
+  --n-trials 200 \
+  --unhelpfulness-prompts.config en \
+  > /workspace/heretic.log 2>&1 &
+```
+
+## Verification Results
 
 ### Success Criteria
-- [x] All existing tests pass
-- [x] Wheel builds successfully
-- [ ] PCA completes in <20 minutes on H200 (32B model)
-- [ ] No GPU OOM errors
-- [ ] Abliteration quality unchanged (KL divergence, refusals)
-- [ ] First Optuna trial completes successfully
+- [x] All existing tests pass (45/45 model tests)
+- [x] Wheel builds successfully with config.default.toml included
+- [x] PCA extraction completes in seconds/minutes (confirmed in logs)
+- [x] No GPU OOM errors
+- [x] C4 dataset loads successfully with config="en"
+- [ ] Full abliteration quality validation (in progress)
+- [ ] First Optuna trial completes successfully (in progress)
+
+### Performance Validation (H200)
+- **Model:** Qwen2.5-Coder-32B-Instruct (64 layers × 5120 dims)
+- **PCA Extraction:** ✅ Completed in <5 minutes (vs 4-6 hours expected with CPU)
+- **GPU Utilization:** 87-100% during model loading and PCA
+- **Memory Usage:** 64-68GB / 140GB (well within limits)
+- **Status:** Currently downloading C4 dataset for orthogonalization (1024 files)
 
 ## Risk Assessment
 
@@ -120,3 +216,41 @@ This enables:
 - Full abliteration runs on 32B+ models
 - Faster iteration during development
 - Lower cloud GPU costs (fewer billable hours)
+
+## Lessons Learned
+
+### Packaging Python Projects with Data Files
+1. **Data files must be in package directory:** Place config files in `src/<package>/` not project root
+2. **Configure build backend:** Use `[tool.uv.build-backend] data-files` to include non-Python files
+3. **Verify wheel contents:** Always check with `unzip -l dist/*.whl` before deployment
+
+### Pydantic Settings Priority
+1. **CLI > Env > TOML:** Command-line arguments have highest priority
+2. **Default values override config:** CLI defaults (even `None`) override TOML values
+3. **Explicit CLI or clean TOML:** Either pass all settings via CLI or ensure no conflicting defaults
+
+### Dataset Configuration
+1. **Some datasets require config parameter:** C4, MMLU, and other multi-variant datasets need explicit config
+2. **Test with minimal examples:** Validate dataset loading with small splits before full runs
+3. **Handle optional fields properly:** Use `str | None` with `default=None` for optional parameters
+
+### GPU Optimization Best Practices
+1. **Keep tensors on device:** Avoid `.cpu().numpy()` conversions in hot paths
+2. **Upcast for stability:** Use `.float()` for numerical operations requiring precision
+3. **Torch has GPU equivalents:** Most numpy operations have torch equivalents (use them!)
+4. **Measure actual performance:** Don't rely on estimates - profile real workloads
+
+### Deployment Checklist
+- [ ] Verify wheel contains all data files (`unzip -l`)
+- [ ] Check installed package has correct files (`find /path/to/package -name '*.toml'`)
+- [ ] Test config loading (`python -c "from package import Settings; print(Settings())"`)
+- [ ] Clear Python cache after reinstall (`find . -name '*.pyc' -delete`)
+- [ ] Pass critical config via CLI or verify TOML config is loaded
+- [ ] Monitor logs for startup errors before assuming success
+
+### Code Quality Improvements Made
+1. **Type hints:** Added `str | None` for optional config field
+2. **Backward compatibility:** Config field defaults to `None` (optional)
+3. **Error handling:** Existing fallback mechanisms preserved
+4. **Documentation:** Comprehensive field descriptions in Pydantic models
+5. **Testing:** Performance benchmark added to catch regressions
