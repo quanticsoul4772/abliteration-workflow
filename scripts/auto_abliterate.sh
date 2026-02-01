@@ -11,11 +11,12 @@ fi
 
 # Configuration (can be overridden by environment variables)
 MODEL="${MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}"
-OUTPUT_REPO="${OUTPUT:-rawcell/qwen-7b-abliterated}"
+OUTPUT_REPO="${OUTPUT_REPO:-rawcell/qwen-7b-abliterated}"
 GPU_TIER="${GPU:-H200}"
 NUM_GPUS="${NUM_GPUS:-1}"
 TRIALS="${TRIALS:-200}"
 DISK_SIZE="${DISK:-200}"
+MAX_RUNTIME="${MAX_RUNTIME:-14400}"  # 4 hours max by default
 
 # Validate required environment variables
 if [ -z "$HF_TOKEN" ]; then
@@ -45,9 +46,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "Step 1/5: Creating GPU instance..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-uv run bruno-vast create $GPU_TIER $NUM_GPUS --disk $DISK_SIZE
-
-if [ $? -ne 0 ]; then
+if ! uv run bruno-vast create $GPU_TIER $NUM_GPUS --disk $DISK_SIZE; then
     echo "ERROR: Failed to create instance"
     exit 1
 fi
@@ -119,7 +118,7 @@ cd /workspace && \
 nohup bruno \
   --model $MODEL \
   --cache-weights true \
-  --compile true \
+  --compile \
   --n-trials $TRIALS \
   --storage sqlite:////workspace/bruno_study.db \
   --study-name auto-abliteration \
@@ -147,8 +146,21 @@ START_TIME=$(date +%s)
 CHECK_INTERVAL=300  # 5 minutes
 
 while true; do
-    # Check if bruno process is still running
-    PROCESS_CHECK=$(uv run bruno-vast exec "ps aux | grep -v grep | grep 'bruno.*--model' || echo 'NOTRUNNING'")
+    # Check timeout first
+    CURRENT_TIME=$(date +%s)
+    ELAPSED=$((CURRENT_TIME - START_TIME))
+    ELAPSED_MIN=$((ELAPSED / 60))
+
+    if [ $ELAPSED -ge $MAX_RUNTIME ]; then
+        echo ""
+        echo "⚠ WARNING: Maximum runtime reached (${MAX_RUNTIME}s / $((MAX_RUNTIME/3600))h)"
+        echo "  Training may still be running. Check manually: uv run bruno-vast watch"
+        break
+    fi
+
+    # Check if bruno process is still running (robust pattern matching)
+    # Use pgrep for more reliable process detection
+    PROCESS_CHECK=$(uv run bruno-vast exec "pgrep -f 'bruno.*--model' >/dev/null 2>&1 && echo 'RUNNING' || echo 'NOTRUNNING'" 2>/dev/null || echo 'NOTRUNNING')
 
     if echo "$PROCESS_CHECK" | grep -q "NOTRUNNING"; then
         echo ""
@@ -156,13 +168,8 @@ while true; do
         break
     fi
 
-    # Calculate elapsed time
-    CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - START_TIME))
-    ELAPSED_MIN=$((ELAPSED / 60))
-
     # Get trial progress
-    TRIAL_COUNT=$(uv run bruno-vast exec "grep -c 'Trial' /workspace/bruno.log 2>/dev/null || echo 0")
+    TRIAL_COUNT=$(uv run bruno-vast exec "grep -c 'Trial' /workspace/bruno.log 2>/dev/null || echo 0" 2>/dev/null || echo "?")
 
     # Show progress
     echo "[$(date +%H:%M:%S)] Elapsed: ${ELAPSED_MIN} min | Trials: ${TRIAL_COUNT}/${TRIALS}"
@@ -195,9 +202,20 @@ echo "✓ Model saved locally: $MODEL_CHECK"
 # Check HuggingFace upload
 echo ""
 echo "Verifying HuggingFace upload..."
-sleep 10  # Give HF time to process
+sleep 15  # Give HF time to process
 
-if curl -s "https://huggingface.co/api/models/$OUTPUT_REPO" | grep -q "modelId"; then
+# Retry up to 3 times with backoff
+UPLOAD_SUCCESS=false
+for i in 1 2 3; do
+    if curl -s --max-time 30 "https://huggingface.co/api/models/$OUTPUT_REPO" 2>/dev/null | grep -q "modelId"; then
+        UPLOAD_SUCCESS=true
+        break
+    fi
+    echo "  Retry $i/3..."
+    sleep $((i * 10))
+done
+
+if [ "$UPLOAD_SUCCESS" = true ]; then
     echo "✓ Upload successful!"
     echo ""
     echo "╔════════════════════════════════════════════════════════════╗"

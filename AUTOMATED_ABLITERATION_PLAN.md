@@ -72,8 +72,8 @@
 
 ```bash
 # Automated script starts here
-bruno-vast create H200 1 --disk 200
-bruno-vast setup
+uv run bruno-vast create H200 1 --disk 200
+uv run bruno-vast setup
 ```
 
 **Automation:** Fully automated via bruno-vast CLI
@@ -87,7 +87,7 @@ bruno-vast setup
 bruno \
   --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --cache-weights true \
-  --compile true \
+  --compile \
   --n-trials 200 \
   --storage sqlite:////workspace/bruno_study.db \
   --study-name qwen7b-abliteration \
@@ -139,6 +139,7 @@ bruno-vast stop
 ```bash
 #!/bin/bash
 # Fully automated abliteration E2E
+# See scripts/auto_abliterate.sh for the complete implementation
 
 set -e  # Exit on error
 
@@ -147,6 +148,8 @@ MODEL="Qwen/Qwen2.5-Coder-7B-Instruct"
 OUTPUT_REPO="rawcell/qwen-7b-abliterated"
 GPU_TIER="H200"
 TRIALS=200
+DISK_SIZE=200
+MAX_RUNTIME=14400  # 4 hours timeout
 
 echo "=== Starting Automated Abliteration ==="
 echo "Model: $MODEL"
@@ -156,32 +159,28 @@ echo ""
 
 # Step 1: Create instance
 echo "[1/5] Creating GPU instance..."
-INSTANCE_ID=$(bruno-vast create $GPU_TIER 1 --disk 200 --json | jq -r '.id')
-if [ -z "$INSTANCE_ID" ]; then
-    echo "ERROR: Failed to create instance"
-    exit 1
-fi
-echo "  Instance ID: $INSTANCE_ID"
+uv run bruno-vast create $GPU_TIER 1 --disk $DISK_SIZE
+echo "  Instance created"
 
 # Step 2: Wait for instance to be ready
 echo "[2/5] Waiting for instance to be ready..."
 sleep 60
-while ! bruno-vast list | grep -q "running"; do
+while ! uv run bruno-vast list | grep -q "running"; do
     sleep 10
 done
 echo "  Instance ready!"
 
 # Step 3: Setup bruno
 echo "[3/5] Installing bruno on instance..."
-bruno-vast setup
+uv run bruno-vast setup
 sleep 10
 
 # Step 4: Run abliteration with auto-upload
 echo "[4/5] Starting abliteration (will take ~1.5 hours)..."
-bruno-vast exec "export HF_TOKEN=$HF_TOKEN && nohup bruno \
+uv run bruno-vast exec "export HF_TOKEN=$HF_TOKEN && nohup bruno \
   --model $MODEL \
   --cache-weights true \
-  --compile true \
+  --compile \
   --n-trials $TRIALS \
   --storage sqlite:////workspace/bruno_study.db \
   --study-name auto-abliteration \
@@ -191,25 +190,34 @@ bruno-vast exec "export HF_TOKEN=$HF_TOKEN && nohup bruno \
   --unhelpfulness-prompts.config en \
   > /workspace/bruno.log 2>&1 &"
 
-# Step 5: Monitor progress
+# Step 5: Monitor progress with timeout
 echo "[5/5] Monitoring progress..."
 echo "  Log file: /workspace/bruno.log"
-echo "  You can check: bruno-vast watch"
+echo "  You can check: uv run bruno-vast watch"
 echo ""
-echo "Waiting for completion (checking every 5 minutes)..."
+echo "Waiting for completion (checking every 5 minutes, max 4 hours)..."
 
+START_TIME=$(date +%s)
 while true; do
-    # Check if bruno process is still running
-    RUNNING=$(bruno-vast exec "ps aux | grep -v grep | grep bruno || echo 'done'")
+    # Check timeout
+    CURRENT_TIME=$(date +%s)
+    ELAPSED=$((CURRENT_TIME - START_TIME))
+    if [ $ELAPSED -ge $MAX_RUNTIME ]; then
+        echo "  WARNING: Maximum runtime reached ($MAX_RUNTIME seconds)"
+        break
+    fi
 
-    if echo "$RUNNING" | grep -q "done"; then
+    # Check if bruno process is still running (robust pattern matching)
+    RUNNING=$(uv run bruno-vast exec "pgrep -f 'bruno.*--model' || echo 'NOTRUNNING'" 2>/dev/null)
+
+    if echo "$RUNNING" | grep -q "NOTRUNNING"; then
         echo "  Abliteration complete!"
         break
     fi
 
     # Show progress
-    TRIALS_DONE=$(bruno-vast exec "grep -c 'Trial' /workspace/bruno.log 2>/dev/null || echo 0")
-    echo "  Progress: $TRIALS_DONE / $TRIALS trials"
+    TRIALS_DONE=$(uv run bruno-vast exec "grep -c 'Trial' /workspace/bruno.log 2>/dev/null || echo 0")
+    echo "  Progress: $TRIALS_DONE / $TRIALS trials (elapsed: $((ELAPSED/60)) min)"
 
     sleep 300  # Check every 5 minutes
 done
@@ -217,13 +225,14 @@ done
 # Check if upload succeeded
 echo ""
 echo "Checking HuggingFace upload..."
-if curl -s https://huggingface.co/api/models/$OUTPUT_REPO | grep -q "modelId"; then
+sleep 10  # Give HF time to process
+if curl -s "https://huggingface.co/api/models/$OUTPUT_REPO" | grep -q "modelId"; then
     echo "  Upload successful: https://huggingface.co/$OUTPUT_REPO"
 
     # Destroy instance
     echo ""
     echo "Destroying instance to stop billing..."
-    bruno-vast stop
+    uv run bruno-vast stop
 
     echo ""
     echo "=== COMPLETE ==="
@@ -231,7 +240,7 @@ if curl -s https://huggingface.co/api/models/$OUTPUT_REPO | grep -q "modelId"; t
     echo "Ready for deployment!"
 else
     echo "  WARNING: Upload may have failed"
-    echo "  Check instance manually: bruno-vast list"
+    echo "  Check instance manually: uv run bruno-vast list"
 fi
 ```
 
@@ -305,16 +314,16 @@ chmod +x scripts/auto_abliterate.sh
 ## COMPLETE E2E COMMAND (One-Liner)
 
 ```bash
-bruno-vast create H200 1 && \
-bruno-vast setup && \
-bruno-vast exec "export HF_TOKEN=$HF_TOKEN && \
+uv run bruno-vast create H200 1 --disk 200 && \
+uv run bruno-vast setup && \
+uv run bruno-vast exec "export HF_TOKEN=$HF_TOKEN && \
   bruno Qwen/Qwen2.5-Coder-7B-Instruct \
-  --cache-weights true --compile true --n-trials 200 \
+  --cache-weights true --compile --n-trials 200 \
   --auto-select true --hf-upload rawcell/qwen-7b-abliterated \
   --unhelpfulness-prompts.config en && \
   echo 'COMPLETE' > /workspace/done.txt" && \
 sleep 7200 && \
-bruno-vast stop
+uv run bruno-vast stop
 ```
 
 **This runs completely unattended for 2 hours, then auto-destroys.**
@@ -426,13 +435,13 @@ print(response)
 
 ```bash
 # Light abliteration (more cautious)
-MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=100 OUTPUT=rawcell/qwen-7b-light ./scripts/auto_abliterate.sh
+MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=100 OUTPUT_REPO=rawcell/qwen-7b-light ./scripts/auto_abliterate.sh
 
 # Medium (balanced)
-MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=200 OUTPUT=rawcell/qwen-7b-medium ./scripts/auto_abliterate.sh
+MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=200 OUTPUT_REPO=rawcell/qwen-7b-medium ./scripts/auto_abliterate.sh
 
 # Aggressive (maximum abliteration)
-MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=300 OUTPUT=rawcell/qwen-7b-aggressive ./scripts/auto_abliterate.sh
+MODEL=Qwen/Qwen2.5-Coder-7B-Instruct TRIALS=300 OUTPUT_REPO=rawcell/qwen-7b-aggressive ./scripts/auto_abliterate.sh
 ```
 
 **Cost:** $3-4 per variant, 1.5-2 hours each

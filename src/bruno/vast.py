@@ -87,6 +87,13 @@ GPU_TIERS = {
         "disk_gb": 150,
         "description": "80GB VRAM - Fastest, good for 70B+ models",
     },
+    "H200": {
+        "gpu_name": "H200",
+        "max_price": 5.00,
+        "min_vram": 141,
+        "disk_gb": 200,
+        "description": "141GB VRAM - Best for 32B-70B+ models, fastest PCA",
+    },
 }
 
 DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
@@ -757,8 +764,8 @@ def show_tiers():
     console.print("[yellow]Model size recommendations:[/]")
     console.print("  7B-8B models   -> RTX_4090 (1 GPU)")
     console.print("  14B-30B models -> A6000 or A100_40GB (1 GPU)")
-    console.print("  32B models     -> A100_80GB (1 GPU)")
-    console.print("  70B-72B models -> A100_80GB (2 GPUs) or H100 (2 GPUs)")
+    console.print("  32B models     -> A100_80GB or H200 (1 GPU)")
+    console.print("  70B-72B models -> H200 (1 GPU) or A100_80GB (2 GPUs)")
 
 
 @cli.command("gpus")
@@ -798,8 +805,15 @@ def search_gpus(ctx, tier: str):
 @cli.command("create")
 @click.argument("tier", default="RTX_4090")
 @click.argument("num_gpus", default=1, type=int)
+@click.option(
+    "--disk",
+    "-d",
+    type=int,
+    default=None,
+    help="Disk size in GB (overrides tier default)",
+)
 @click.pass_context
-def create_pod(ctx, tier: str, num_gpus: int):
+def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
     """Create a new Vast.ai instance."""
     config = ctx.obj["config"]
 
@@ -823,7 +837,14 @@ def create_pod(ctx, tier: str, num_gpus: int):
     disk_gb = tier_config["disk_gb"]
     max_price = tier_config["max_price"] * num_gpus
 
-    if num_gpus > 1:
+    # Override disk size if specified via --disk flag
+    if disk is not None:
+        try:
+            disk_gb = validate_disk_size(disk)
+        except ConfigurationError as e:
+            console.print(f"[red]Validation Error: {e}[/]")
+            return
+    elif num_gpus > 1:
         disk_gb = max(disk_gb, 400)  # 32B+ models need more space for weights + cache
 
     console.print()
