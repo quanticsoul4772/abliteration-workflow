@@ -184,6 +184,12 @@ class BrunoChat:
             )
             inputs = self.tokenizer(messages_text, return_tensors="pt")["input_ids"]
 
+        # Extract input_ids tensor if inputs is a dict/BatchEncoding
+        if isinstance(inputs, dict):
+            inputs = inputs["input_ids"]
+        elif hasattr(inputs, "input_ids"):
+            inputs = inputs.input_ids
+
         inputs = inputs.to(self.model.device)
 
         # Generate with streaming
