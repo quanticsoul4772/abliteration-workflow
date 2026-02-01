@@ -60,9 +60,8 @@ def abliterate():
 @click.option(
     "--model",
     "-m",
-    default="rawcell/bruno",
-    help="Model to chat with (HuggingFace ID or local path)",
-    show_default=True,
+    default=None,
+    help="Model to chat with (HuggingFace ID or local path). If not specified, shows interactive selector.",
 )
 @click.option(
     "--4bit",

@@ -15,6 +15,7 @@ from typing import Optional
 os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
 
 import torch
+from huggingface_hub import list_models
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -27,6 +28,61 @@ from .utils import empty_cache
 from .utils import print as rich_print
 
 logger = get_logger(__name__)
+
+
+def select_model_interactive(default: str = "rawcell/bruno") -> str:
+    """Interactively select a model from HuggingFace.
+
+    Args:
+        default: Default model to pre-select
+
+    Returns:
+        Selected model name
+    """
+    import questionary
+
+    rich_print("[bold]Select a model to chat with:[/]")
+    rich_print()
+
+    # Get user's models from HuggingFace
+    try:
+        user_models = list(list_models(author="rawcell", sort="lastModified", limit=20))
+        model_names = [m.id for m in user_models if m.id]
+
+        if not model_names:
+            rich_print("[yellow]No models found in your HuggingFace account.[/]")
+            return default
+
+        # Add popular alternatives
+        popular = [
+            "Qwen/Qwen2.5-Coder-7B-Instruct",
+            "Qwen/Qwen2.5-7B-Instruct",
+            "meta-llama/Llama-3.1-8B-Instruct",
+        ]
+
+        all_choices = model_names + ["---"] + popular + ["---", "Enter custom model"]
+
+        # Select using questionary
+        selected = questionary.select(
+            "Choose model:",
+            choices=all_choices,
+            default=default if default in all_choices else all_choices[0],
+        ).ask()
+
+        if selected == "Enter custom model":
+            selected = questionary.text(
+                "Enter model name (HuggingFace ID or local path):"
+            ).ask()
+
+        if selected == "---":
+            return default
+
+        return selected
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch models: {e}")
+        rich_print(f"[yellow]Using default: {default}[/]")
+        return default
 
 
 class BrunoChat:
@@ -221,7 +277,7 @@ class BrunoChat:
 
 
 def run_chat(
-    model_name: str = "rawcell/bruno",
+    model_name: Optional[str] = None,
     use_4bit: bool = False,
     temperature: float = 0.7,
     max_new_tokens: int = 2048,
@@ -230,7 +286,7 @@ def run_chat(
     """Entry point for chat mode.
 
     Args:
-        model_name: HuggingFace model ID or local path
+        model_name: HuggingFace model ID or local path (None = interactive selector)
         use_4bit: Use 4-bit quantization
         temperature: Sampling temperature
         max_new_tokens: Max tokens per response
@@ -242,6 +298,11 @@ def run_chat(
     rich_print("[cyan]█▀▄░█▀▄░█░█░█░▀█░█░█[/]")
     rich_print("[cyan]▀▀░░▀░▀░▀▀▀░▀░░▀░▀▀▀[/]  Interactive chat with your model")
     rich_print()
+
+    # Interactive model selection if not specified
+    if model_name is None:
+        model_name = select_model_interactive(default="rawcell/bruno")
+        rich_print()
 
     try:
         # Create and run chat session
