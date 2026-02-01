@@ -7,8 +7,12 @@ Provides a terminal-based chat experience similar to Claude Code
 for testing and using abliterated models.
 """
 
+import os
 import sys
 from typing import Optional
+
+# Disable symlinks on Windows to avoid permission issues
+os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
 
 import torch
 from transformers import (
