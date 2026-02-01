@@ -280,11 +280,16 @@ class BrunoChat:
 
     def run_interactive(self):
         """Run interactive chat loop with command handling."""
+        from rich.console import Console
+
+        console = Console()
+
         while True:
             try:
-                # Get user input
-                rich_print()
-                user_input = input("[bold green]You:[/] ")
+                # Get user input with styled prompt
+                console.print()
+                console.print("[bold green]You:[/] ", end="")
+                user_input = input()
 
                 if not user_input.strip():
                     continue
