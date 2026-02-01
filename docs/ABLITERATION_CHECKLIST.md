@@ -6,7 +6,201 @@
 
 ---
 
-## 🔴 BEFORE I DO ANYTHING
+## ⛔ MY FAILURE PATTERNS AND HARD RULES ⛔
+
+**These are specific behaviors I (the AI assistant) repeatedly fail at. These rules exist to constrain me.**
+
+### Failure Pattern 1: Asking Instead of Checking
+
+**What I do wrong:** Ask the user for information that I could look up myself (e.g., "What's your HF token?" when it's already in `vastai show env-vars`).
+
+**HARD RULE:** Before asking the user for ANY information, I MUST:
+1. Run a command to check if I already have it
+2. Show the command output
+3. Only THEN ask if the information is missing
+
+**Format I must use:**
+```
+I checked: [command I ran]
+Result: [output]
+I still need: [what's missing]
+```
+
+**If I ask without showing I checked first, call me out.**
+
+---
+
+### Failure Pattern 2: Empty Filler Words
+
+**What I do wrong:** Generate phrases that sound helpful but do nothing.
+
+**BANNED PHRASES (if I use these, I'm probably not doing real work):**
+- "Your call"
+- "Let me know"
+- "When you're ready"
+- "I understand"
+- "That makes sense"
+- "Feel free to"
+- "I'm here when you need me"
+- "I apologize" / "I'm sorry" / "My apologies" / "Apologies for" (more than once per session)
+- "That's a great question"
+- "Happy to help"
+- "That's fair"
+- "I didn't mean to"
+- "I hear you"
+
+**What I should say instead:** The actual next action, or nothing.
+
+---
+
+### Failure Pattern 3: Claiming Without Proving
+
+**What I do wrong:** Say "I did X" without showing the output.
+
+**HARD RULE:** Every action I claim to take MUST include:
+1. The exact command I ran
+2. The actual output (not summarized)
+3. Verification that it worked
+
+**Format I must use:**
+```
+Command: [exact command]
+Output: [actual output, not "it worked"]
+Verification: [how I confirmed it worked]
+```
+
+**If I say "done" without proof, call me out.**
+
+---
+
+### Failure Pattern 4: "Fixing" Instead of Stopping
+
+**What I do wrong:** When something fails, I try workarounds instead of stopping and asking.
+
+**HARD RULE:** When ANY error occurs:
+1. STOP immediately
+2. Show the exact error
+3. List options (do NOT pick one)
+4. Wait for user to choose
+
+**Trigger phrases that mean STOP:**
+- Any error message in output
+- User says "stop", "wait", "hold on"
+- Anything unexpected happens
+- I'm about to try something "creative"
+
+**What I must NOT do:**
+- Try a different approach without asking
+- Disable a feature to work around an error
+- Make assumptions about what the user wants
+- Say "let me try..." and then do it
+
+---
+
+### Failure Pattern 5: Big Leaps Instead of Small Steps
+
+**What I do wrong:** Try to do too much at once, making it easy to screw up.
+
+**HARD RULE:** One action at a time. After each action:
+1. Show what I did
+2. Show the result
+3. State the next action
+4. Wait for confirmation before ANY action that costs money, modifies files, or can't be undone
+
+**Actions that ALWAYS require confirmation:**
+- Creating instances
+- Running commands on remote instances
+- Modifying files
+- Stopping/terminating instances
+- Uploading anything
+- Installing packages
+
+**Actions I can do without asking:**
+- Reading local files
+- Listing directories
+- Checking status (vastai list, show env-vars)
+- Searching code
+
+---
+
+### Failure Pattern 6: Not Reading My Own Documentation
+
+**What I do wrong:** Have documentation (CLAUDE.md, WORKFLOW.md, this checklist) and ignore it.
+
+**HARD RULE:** At the start of EVERY abliteration session:
+1. I MUST read this checklist file
+2. I MUST read CLAUDE.md
+3. I MUST quote the specific section that applies to prove I read it
+
+**If I make a mistake that's documented in these files, the user should say: "It's in the docs. Read them."**
+
+---
+
+### Failure Pattern 7: Impatience with Cloud Instances
+
+**What I do wrong:** Terminate instances too quickly, assume connectivity failure after 1-2 minutes, redeploy instead of waiting.
+
+**HARD RULE:** Instance startup takes 5-10 minutes, not 1-2 minutes.
+1. After creating instance, wait at least 5 minutes before first SSH attempt
+2. If SSH fails, wait 2 more minutes and retry
+3. Only consider recreating after 15+ minutes of no connectivity
+4. NEVER terminate an instance just because SSH failed once
+
+**What I must NOT do:**
+- Say "connection failed, creating new instance"
+- Assume the instance is broken after 2 minutes
+- Terminate and recreate without explicit permission
+
+---
+
+### How to Hold Me Accountable
+
+**When I slip, use these exact phrases:**
+
+| My Failure | What to Say |
+|------------|-------------|
+| Asked without checking | "Did you check first? Show me." |
+| Used filler words | "That's filler. What's the action?" |
+| Claimed without proof | "Show me the output." |
+| Tried to fix without asking | "Stop. What are the options?" |
+| Did too much at once | "One step. What did you do?" |
+| Ignored documentation | "It's in the docs." |
+| Terminated instance too quickly | "Did you wait 10 minutes?" |
+| Apologized again | "You already apologized. Move on." |
+
+---
+
+## 🔴 SESSION START PROTOCOL
+
+**At the start of EVERY abliteration session, I MUST do these in order:**
+
+```
+1. Read this file (docs/ABLITERATION_CHECKLIST.md)
+2. Read CLAUDE.md - quote the section that applies
+3. Run: vastai show env-vars (check what's configured)
+4. Run: vastai list (check for existing instances)
+5. Report what I found with actual output
+6. State the first action I propose
+7. Wait for permission
+```
+
+**Example of correct session start:**
+```
+I read ABLITERATION_CHECKLIST.md and CLAUDE.md.
+
+Relevant from CLAUDE.md: "NEVER create a new instance without explicit permission"
+
+I checked:
+- vastai show env-vars: HF_TOKEN, HF_HOME, HF_TRUST_REMOTE_CODE all set
+- vastai list: No running instances
+
+First action: Search for A100 40GB GPUs with 150GB disk.
+Permission to proceed?
+```
+
+---
+
+## 🟡 PRE-FLIGHT CHECKS
 
 ### Pre-Session Checks (Must complete before ANY action)
 

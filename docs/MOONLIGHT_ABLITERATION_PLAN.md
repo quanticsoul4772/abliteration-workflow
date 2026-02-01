@@ -15,6 +15,24 @@ This plan is designed to be executed **with human supervision**. The AI assistan
 - **WILL** stop and ask if anything is unclear or fails
 - **WILL** report progress after each step
 
+**⛔ HARD RULES (see ABLITERATION_CHECKLIST.md for full details):**
+1. **Check before asking** - Run commands to verify before asking user for info
+2. **No filler words** - No "your call", "let me know", "I understand"
+3. **Prove every action** - Show command + output, not just "done"
+4. **Stop on errors** - List options, don't try fixes
+5. **One step at a time** - Report after each action
+6. **Read the docs first** - CLAUDE.md, WORKFLOW.md, ABLITERATION_CHECKLIST.md
+
+**SESSION START PROTOCOL:**
+```
+1. Read docs/ABLITERATION_CHECKLIST.md
+2. Read CLAUDE.md (at minimum the "Critical Gotchas" section)
+3. Run: vastai show env-vars (to see what's already configured)
+4. Run: vastai list (to check for existing instances)
+5. Report what I found
+6. State the first action and wait for permission
+```
+
 **User checkpoints (must confirm before proceeding):**
 1. ✋ Before creating GPU instance (Phase 1.2) - **Cost: ~$5-10 total**
 2. ✋ Before starting full training (Phase 3.1) - **Commits to 6-7 hours**

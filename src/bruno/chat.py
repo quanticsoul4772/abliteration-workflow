@@ -143,6 +143,44 @@ class BrunoChat:
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, token=token)
 
+        # Check for CPU offloading (indicates insufficient VRAM)
+        cpu_params = sum(1 for p in self.model.parameters() if p.device.type == "cpu")
+        total_params = sum(1 for _ in self.model.parameters())
+
+        if cpu_params > 0:
+            cpu_percent = (cpu_params / total_params) * 100
+            rich_print()
+            rich_print(
+                f"[bold red]⚠ WARNING: {cpu_params}/{total_params} parameters "
+                f"({cpu_percent:.1f}%) offloaded to CPU![/]"
+            )
+            rich_print(
+                "[yellow]This will be VERY slow (1-2 tok/s instead of 20-30 tok/s)[/]"
+            )
+            rich_print()
+            rich_print("[bold]Solutions:[/]")
+            rich_print(
+                f"  1. Restart with 4-bit: [cyan]bruno chat --model {model_name} --4bit[/]"
+            )
+            rich_print(
+                "  2. Use smaller model: [cyan]bruno chat --model Qwen/Qwen2.5-1.5B[/]"
+            )
+            rich_print("  3. Run on cloud GPU instead (Vast.ai, RunPod)")
+            rich_print()
+
+            # Give user option to continue or quit
+            import questionary
+
+            continue_anyway = questionary.confirm(
+                "Continue with slow CPU inference anyway?", default=False
+            ).ask()
+
+            if not continue_anyway:
+                rich_print("[dim]Exiting. Restart with --4bit for fast inference.[/]")
+                sys.exit(0)
+
+            rich_print("[yellow]Continuing with CPU offload (will be slow)...[/]")
+
         # Setup streaming output
         self.streamer = TextStreamer(
             self.tokenizer,
