@@ -2068,11 +2068,14 @@ def visualize_study(
         )
         console.print("  Objective 0: KL Divergence (minimize)")
         console.print("  Objective 1: Refusals (minimize)")
+
         # Target functions for each objective
-        target_kl = lambda t: t.values[0] if t.values else float("inf")
-        target_refusals = (
-            lambda t: t.values[1] if t.values and len(t.values) > 1 else float("inf")
-        )
+        def target_kl(t):
+            return t.values[0] if t.values else float("inf")
+
+        def target_refusals(t):
+            return t.values[1] if t.values and len(t.values) > 1 else float("inf")
+
         objectives = [
             ("kl", "KL Divergence", target_kl),
             ("refusals", "Refusals", target_refusals),
