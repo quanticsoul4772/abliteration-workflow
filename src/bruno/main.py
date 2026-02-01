@@ -804,9 +804,11 @@ def run():
     # Run optimization loop using phase module
     run_optimization(study, objective, settings.n_trials)
 
+    # Sort by refusals (primary), then by KL divergence (secondary) to break ties.
+    # This ensures we pick the trial with lowest KL when multiple trials have 0 refusals.
     best_trials = sorted(
         study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+        key=lambda trial: (trial.user_attrs["refusals"], trial.user_attrs["kl_divergence"]),
     )
 
     choices = [

@@ -1,4 +1,4 @@
-# Lessons Learned - 32B Model Abliteration
+# Lessons Learned - 32B Model Abliteration with Bruno
 **Date:** 2026-01-30
 **Hardware:** 4x RTX 4090 (96GB total VRAM) on Vast.ai
 **Model:** Qwen/Qwen2.5-Coder-32B-Instruct (64 layers, ~64GB unquantized)
@@ -158,25 +158,25 @@ iterative_rounds = 0  # REQUIRED for 32B on 24GB GPUs
 **Solution:** Always check and kill before starting
 ```bash
 # Check for existing processes
-ps aux | grep '[h]eretic'
+ps aux | grep '[b]runo'
 
-# Kill all Python/heretic processes
+# Kill all Python/bruno processes
 pkill -9 -f python
-pkill -9 -f heretic
+pkill -9 -f bruno
 
 # Verify clean state
 nvidia-smi | grep python  # Should show nothing
 
 # Then start fresh
-cd /workspace && nohup heretic > heretic.log 2>&1 &
+cd /workspace && nohup bruno > bruno.log 2>&1 &
 ```
 
 **Prevention:** Add lock file mechanism (future improvement)
 ```python
 # In main.py at startup
-LOCK_FILE = Path("/tmp/heretic.lock")
+LOCK_FILE = Path("/tmp/bruno.lock")
 if LOCK_FILE.exists():
-    print("[red]Another heretic process is running![/]")
+    print("[red]Another bruno process is running![/]")
     print(f"[yellow]If you're sure it's not, delete {LOCK_FILE}[/]")
     sys.exit(1)
 
@@ -266,12 +266,12 @@ max_batch_size = 16              # Cap auto-detection
 # Optuna
 n_trials = 200                   # Or reduce to 50-100 for faster results
 n_startup_trials = 30
-storage = "sqlite:///heretic_32b.db"
+storage = "sqlite:///bruno_32b.db"
 study_name = "qwen32b"
 
 # Auto-save
 auto_select = true
-auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-heretic"
+auto_select_path = "/workspace/models/Qwen2.5-Coder-32B-Instruct-bruno"
 ```
 
 **Expected runtime:** 30-35 hours
@@ -293,10 +293,10 @@ batch_size = 0                   # Auto-detect
 max_batch_size = 64              # Allow larger batches
 
 n_trials = 200
-storage = "sqlite:///heretic_32b.db"
+storage = "sqlite:///bruno_32b.db"
 study_name = "qwen32b_a100"
 auto_select = true
-auto_select_path = "/workspace/models/model-heretic"
+auto_select_path = "/workspace/models/model-bruno"
 ```
 
 **Expected runtime:** 12-15 hours
@@ -312,6 +312,8 @@ Calculating per-layer refusal directions...
 * Obtaining residuals for bad prompts...
 * Extracting 3 refusal directions using contrastive PCA... (hangs forever)
 ```
+
+**Note:** This issue was resolved in v1.0.1+ with GPU-accelerated PCA. If using an older version, upgrade.
 
 **Root cause:** PCA computation hangs/deadlocks on large models
 
@@ -443,10 +445,10 @@ cat config.toml
 #   batch_size = 4
 
 # 4. Start abliteration
-cd /workspace && nohup heretic > heretic.log 2>&1 &
+cd /workspace && nohup bruno > bruno.log 2>&1 &
 
 # 5. Monitor startup (wait 5-10 minutes for model loading)
-tail -f heretic.log
+tail -f bruno.log
 
 # 6. Verify GPU distribution after model loads
 nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
@@ -678,6 +680,28 @@ See `scripts/setup_runpod_a100.md` for RunPod setup instructions.
 
 ---
 
+## Successful Abliteration Results
+
+### Qwen2.5-Coder-32B Trial 173 (Best Result)
+- **Date:** 2026-02-01
+- **Model:** Qwen/Qwen2.5-Coder-32B-Instruct
+- **GPU:** H200 141GB on Vast.ai
+- **Result:** **0 refusals, KL=0.26** (Trial 173 of 200)
+- **Output:** `Qwen2.5-Coder-32B-trial173` (65GB)
+- **Process:** 
+  1. Ran 200-trial Optuna optimization on H200
+  2. Trial 173 identified as best (0 refusals, lowest KL)
+  3. Restored trial from SQLite database
+  4. Re-applied abliteration parameters
+  5. Saved model to `/workspace/models/Qwen2.5-Coder-32B-trial173`
+
+**Trial 173 Parameters:**
+- Optimal layer weights and abliteration strengths from Optuna
+- Used PCA-extracted refusal directions
+- Applied with `torch.no_grad()` for memory efficiency
+
+---
+
 ## Action Items
 
 - [x] Update CLAUDE.md with multi-GPU configuration section
@@ -686,7 +710,27 @@ See `scripts/setup_runpod_a100.md` for RunPod setup instructions.
 - [x] Document all 7 critical issues
 - [x] Create A100 monitoring script
 - [x] Create RunPod setup guide
+- [x] Successfully abliterate Qwen2.5-Coder-32B (Trial 173 - 0 refusals!)
+- [x] Implement layer-wise caching (v1.2.0) - 55-75% memory reduction
+- [x] Document Trial 173 success (0 refusals, KL=0.26)
+- [x] Update all documentation to use "bruno" naming consistently
 - [ ] Implement process lock file to prevent multi-instance
 - [ ] Add GPU memory pre-check before model loading
 - [ ] Consider adding 4-bit quantization support (bitsandbytes)
-- [ ] Update IMPLEMENTATION_PLAN.md with actual multi-GPU complexity (DONE)
+- [ ] Complete local download of Trial 173 model (65GB)
+
+---
+
+## Technical Debt Addressed (2026-02-01)
+
+### Documentation Consistency
+- ✅ Updated `QUICK_REFERENCE.md` from "heretic" to "bruno"
+- ✅ Updated `ROADMAP.md` from "heretic" to "bruno"
+- ✅ Updated `LESSONS_LEARNED.md` for consistent naming
+- ✅ Updated `docs/README.md` with new directory structure
+
+### Outstanding Technical Debt
+1. **Partial model download:** Trial 173 model only 33GB/65GB downloaded locally
+2. **H200 disk nearly full:** 197GB/200GB used - download model before disk issues
+3. **Process lock file:** Not yet implemented - risk of multi-instance conflicts
+4. **GPU memory pre-check:** Would prevent OOM surprises on model load

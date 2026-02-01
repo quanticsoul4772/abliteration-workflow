@@ -1,10 +1,10 @@
-# Heretic Roadmap
+# Bruno Roadmap
 
-This document captures the vision, research directions, and development plans for heretic.
+This document captures the vision, research directions, and development plans for Bruno.
 
 ## Vision
 
-**Heretic is not just an "uncensoring tool."** It's a **surgical instrument for neural behavior modification**.
+**Bruno is not just an "uncensoring tool."** It's a **surgical instrument for neural behavior modification**.
 
 Abliteration (refusal removal) was the first surgery - but the scalpel works on *any* behavioral direction encoded in model weights.
 
@@ -32,11 +32,11 @@ Abliteration (refusal removal) was the first surgery - but the scalpel works on 
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| **Core CLI** (`heretic`) | ✅ Mature | Optuna optimization, HF upload, auto-select |
+| **Core CLI** (`bruno`) | ✅ Mature | Optuna optimization, HF upload, auto-select |
 | **Phase Modules** (`phases/`) | ✅ New | Modular pipeline (dataset, extraction, optimization, saving) |
 | **Sacred Directions** | ✅ New | Capability preservation via MMLU orthogonalization |
 | **Constants Module** | ✅ New | Centralized magic numbers and thresholds |
-| **Cloud CLI** (`heretic-vast`) | ✅ Mature | Rich dashboard, SSH management, Vast.ai automation |
+| **Cloud CLI** (`bruno-vast`) | ✅ Mature | Rich dashboard, SSH management, Vast.ai automation |
 | **Chat UI** (`chat_app.py`) | ✅ Basic | Gradio, streaming, model switching |
 | **Deployment** | ✅ Ready | Docker image, RunPod/Vast.ai scripts |
 | **Experiments** | 🔬 Active | Verbosity spike in `experiments/verbosity/` |
@@ -221,8 +221,8 @@ See individual experiment READMEs for details.
 
 - [ ] Add `save_direction()` / `load_direction()` functions
 - [ ] Direction file format (`.safetensors` or `.pt`)
-- [ ] CLI: `heretic extract` command
-- [ ] CLI: `heretic apply` command
+- [ ] CLI: `bruno extract` command
+- [ ] CLI: `bruno apply` command
 
 ### Phase 2: Multiple Directions
 
@@ -252,7 +252,7 @@ See individual experiment READMEs for details.
 
 4. **Build evidence, not frameworks** - Run experiments first, then design abstractions around learnings.
 
-### What Makes Heretic Different
+### What Makes Bruno Different
 
 - **Weight modification** vs prompt engineering - Permanent, no token overhead
 - **Optimization-based** vs manual tuning - Finds Pareto-optimal parameters

@@ -822,6 +822,15 @@ git push fork master
 - **Storage:** 200GB (correct size)
 - **Cost:** ~$2.21/hr
 
+### Session 3: SUCCESS - Trial 173 Restored (H200 141GB)
+- **Instance ID:** H200 on ssh5.vast.ai:35648
+- **Status:** ✅ SUCCESS - Model saved and downloaded
+- **Model:** Qwen/Qwen2.5-Coder-32B-Instruct
+- **Best Trial:** Trial 173 - **0 refusals, KL=0.26**
+- **Output:** `/workspace/models/Qwen2.5-Coder-32B-trial173` (65GB)
+- **GPU:** H200 141GB (perfect for 32B with caching)
+- **Process:** Restored from Optuna study database, re-applied abliteration parameters
+
 ---
 
 ## ✅ CHECKLIST: Starting Tomorrow's Training

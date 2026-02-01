@@ -324,6 +324,7 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
 - PCA extraction: ~5 min (GPU-accelerated, was 4-6 hrs on CPU)
 - Single trial: ~3 min
 - 200 trials: ~10 hrs (total cost: ~$22)
+- **Best result achieved:** Trial 173 - 0 refusals, KL=0.26
 
 **4x RTX 4090 (Qwen2.5-Coder-32B):**
 - 200 trials: ~30-35 hrs (total cost: ~$47-55)
