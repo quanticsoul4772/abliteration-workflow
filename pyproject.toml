@@ -60,7 +60,7 @@ Changelog = "https://github.com/quanticsoul4772/bruno/commits/master/"
 Original = "https://github.com/p-e-w/heretic"
 
 [project.scripts]
-bruno = "bruno.main:main"
+bruno = "bruno.cli:cli"
 bruno-vast = "bruno.vast:main"
 
 [build-system]

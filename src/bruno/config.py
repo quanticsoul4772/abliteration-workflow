@@ -472,7 +472,7 @@ class Settings(BaseSettings):
 
     # Phase 2 Next-Level Improvement: Supervised Refusal Probing
     use_supervised_probing: bool = Field(
-        default=False,
+        default=True,
         description="Use supervised probing instead of PCA for direction extraction. Trains a linear classifier to predict refusal behavior, using the learned weights as the refusal direction.",
     )
 

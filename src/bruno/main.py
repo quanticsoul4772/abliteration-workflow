@@ -127,9 +127,9 @@ def run():
 
     # Proactively clean stale HuggingFace lock files at startup
     # This prevents hangs that are often misdiagnosed as network timeouts
-    from .hf_utils import ensure_clean_cache
-
-    ensure_clean_cache(verbose=True)
+    # TODO: Implement ensure_clean_cache() in future version
+    # from .hf_utils import ensure_clean_cache
+    # ensure_clean_cache(verbose=True)
 
     if (
         # An odd number of arguments have been passed (argv[0] is the program name),

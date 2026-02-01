@@ -17,6 +17,7 @@ from threading import Thread
 from typing import Any, Generator
 
 import gradio as gr
+import requests
 import torch
 from ddgs import DDGS
 from transformers import (
@@ -133,6 +134,15 @@ MODELS_DIR: Path = Path("models")
 CHAT_HISTORY_DIR: Path = Path("chat_history")
 CHAT_HISTORY_DIR.mkdir(exist_ok=True)
 
+# HuggingFace Inference Endpoints configuration
+# Format: {"Display Name": {"url": "endpoint_url", "token": "optional_token"}}
+HF_ENDPOINTS: dict[str, dict[str, str]] = {
+    "Qwen2.5-Coder-7B-Bruno (Cloud)": {
+        "url": "https://o1g59zji7ahyimsa.us-east-1.aws.endpoints.huggingface.cloud",
+        "token": "",  # Empty for public endpoints
+    },
+}
+
 # Required files for a valid model
 MODEL_WEIGHT_PATTERNS: list[str] = [
     "model.safetensors",
@@ -147,7 +157,8 @@ TOKENIZER_FILES: list[str] = [
 ]
 
 # Available models (will be populated dynamically)
-AVAILABLE_MODELS: dict[str, str] = {}
+# Values are either paths (for local) or dicts with endpoint info
+AVAILABLE_MODELS: dict[str, str | dict[str, str]] = {}
 
 
 # =============================================================================
@@ -496,13 +507,20 @@ def validate_model_files(model_path: Path) -> list[str]:
     return missing
 
 
-def discover_models() -> dict[str, str]:
-    """Discover available models in the models directory.
+def discover_models() -> dict[str, str | dict[str, str]]:
+    """Discover available models in the models directory and configured endpoints.
 
     Returns:
-        Dictionary mapping display names to model paths.
+        Dictionary mapping display names to model paths (str) or endpoint configs (dict).
     """
-    models: dict[str, str] = {}
+    models: dict[str, str | dict[str, str]] = {}
+
+    # Add HuggingFace Inference Endpoints first
+    for name, config in HF_ENDPOINTS.items():
+        models[name] = config
+        logger.info(f"Added HF endpoint: {name} -> {config['url']}")
+
+    # Add local models
     if MODELS_DIR.exists():
         for model_dir in MODELS_DIR.iterdir():
             if model_dir.is_dir():
@@ -516,7 +534,7 @@ def discover_models() -> dict[str, str]:
 
                 # Extract a friendly name
                 name = model_dir.name
-                display_name = name.replace("-", " ").title()
+                display_name = name.replace("-", " ").title() + " (Local)"
                 models[display_name] = str(model_dir)
                 logger.debug(f"Found valid model: {display_name} at {model_dir}")
     return models
@@ -527,21 +545,123 @@ def discover_models() -> dict[str, str]:
 # =============================================================================
 
 
+class EndpointManager:
+    """Manages HuggingFace Inference Endpoint calls."""
+
+    def __init__(self, url: str, token: str = "") -> None:
+        self.url = url
+        self.token = token
+        self.headers: dict[str, str] = {"Content-Type": "application/json"}
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
+
+    def generate_stream(
+        self, messages: list[dict[str, str]], max_tokens: int, temperature: float
+    ) -> Generator[str, None, None]:
+        """Generate a streaming response from the endpoint.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys.
+            max_tokens: Maximum number of tokens to generate.
+            temperature: Sampling temperature.
+
+        Yields:
+            Partial response strings as they are generated.
+        """
+        # Build the payload for the endpoint
+        payload = {
+            "inputs": messages,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": temperature,
+                "do_sample": temperature > 0,
+            },
+        }
+
+        try:
+            response = requests.post(
+                self.url,
+                headers=self.headers,
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Handle different response formats from HF endpoints
+            text = ""
+            if isinstance(result, list) and len(result) > 0:
+                # Standard text-generation format
+                if isinstance(result[0], dict):
+                    generated = result[0].get("generated_text", "")
+                    # If generated_text is a list of messages, get the last assistant message
+                    if isinstance(generated, list):
+                        for msg in reversed(generated):
+                            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                                text = str(msg.get("content", ""))
+                                break
+                        else:
+                            # No assistant message found, get last message content
+                            if generated:
+                                last_msg = generated[-1]
+                                if isinstance(last_msg, dict):
+                                    text = str(last_msg.get("content", last_msg))
+                                else:
+                                    text = str(last_msg)
+                    else:
+                        text = str(generated)
+                else:
+                    text = str(result[0])
+            elif isinstance(result, dict):
+                generated = result.get("generated_text", result.get("text", ""))
+                if isinstance(generated, list):
+                    # Same handling for list of messages
+                    for msg in reversed(generated):
+                        if isinstance(msg, dict) and msg.get("role") == "assistant":
+                            text = str(msg.get("content", ""))
+                            break
+                    else:
+                        text = str(generated[-1]) if generated else ""
+                else:
+                    text = str(generated) if generated else str(result)
+            else:
+                text = str(result)
+
+            # Yield the complete response (endpoints don't stream by default)
+            yield text
+
+        except requests.exceptions.Timeout:
+            raise GenerationError(Exception("Request timed out after 120 seconds"))
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            try:
+                error_detail = e.response.json()
+                error_msg += f": {error_detail.get('error', str(error_detail))}"
+            except Exception:
+                error_msg += f": {e.response.text[:200]}"
+            raise GenerationError(Exception(error_msg))
+        except Exception as e:
+            raise GenerationError(e)
+
+
 class ModelManager:
     """Manages model loading, caching, and text generation."""
 
     def __init__(self) -> None:
         self.current_model_path: str | None = None
+        self.current_endpoint: EndpointManager | None = None
         self.model: PreTrainedModel | None = None
         self.tokenizer: PreTrainedTokenizer | None = None
         self.device: str = "cuda" if torch.cuda.is_available() else "cpu"
         self._generation_error: Exception | None = None
+        self._is_endpoint: bool = False
 
-    def load_model(self, model_path: str) -> None:
-        """Load a model if not already loaded.
+    def load_model(self, model_config: str | dict[str, str]) -> None:
+        """Load a model or configure an endpoint.
 
         Args:
-            model_path: Path to the model directory.
+            model_config: Either a path string (for local models) or a dict with
+                         'url' and 'token' keys (for HF endpoints).
 
         Raises:
             ModelNotFoundError: If the model path does not exist.
@@ -549,6 +669,36 @@ class ModelManager:
             CUDAOutOfMemoryError: If GPU runs out of memory.
             ModelLoadError: If the model fails to load for other reasons.
         """
+        # Check if this is an endpoint config
+        if isinstance(model_config, dict):
+            endpoint_url = model_config.get("url", "")
+            if self._is_endpoint and self.current_model_path == endpoint_url:
+                logger.debug(f"Endpoint already configured: {endpoint_url}")
+                return
+
+            # Unload any local model
+            if self.model is not None:
+                logger.info("Unloading local model for endpoint...")
+                del self.model
+                del self.tokenizer
+                self.model = None
+                self.tokenizer = None
+                gc.collect()
+                torch.cuda.empty_cache()
+                gc.collect()
+
+            # Configure endpoint
+            self.current_endpoint = EndpointManager(
+                url=endpoint_url,
+                token=model_config.get("token", ""),
+            )
+            self.current_model_path = endpoint_url
+            self._is_endpoint = True
+            logger.info(f"Configured endpoint: {endpoint_url}")
+            return
+
+        # Local model path
+        model_path = model_config
         if self.current_model_path == model_path and self.model is not None:
             logger.debug(f"Model already loaded: {model_path}")
             return  # Already loaded
@@ -576,6 +726,10 @@ class ModelManager:
             torch.cuda.empty_cache()
             gc.collect()
             logger.debug(f"GPU memory after unload: {format_gpu_memory_status()}")
+
+        # Clear endpoint state
+        self.current_endpoint = None
+        self._is_endpoint = False
 
         logger.info(f"Loading model from {model_path}...")
 
@@ -626,6 +780,13 @@ class ModelManager:
         Raises:
             GenerationError: If no model is loaded or generation fails.
         """
+        # Use endpoint if configured
+        if self._is_endpoint and self.current_endpoint is not None:
+            yield from self.current_endpoint.generate_stream(
+                messages, max_tokens, temperature
+            )
+            return
+
         if self.model is None or self.tokenizer is None:
             raise GenerationError(Exception("No model loaded"))
 
@@ -849,9 +1010,9 @@ def chat_response(
         return
 
     # Load model if needed
-    model_path = AVAILABLE_MODELS[model_name]
+    model_config = AVAILABLE_MODELS[model_name]
     try:
-        model_manager.load_model(model_path)
+        model_manager.load_model(model_config)
     except CUDAOutOfMemoryError as e:
         logger.error(f"CUDA OOM: {e}")
         yield f"Error: {e.message}"
@@ -1088,11 +1249,18 @@ def create_ui() -> gr.Blocks:
         def update_status(model_name: str) -> str:
             """Update status when model changes."""
             if model_name and model_name in AVAILABLE_MODELS:
+                config = AVAILABLE_MODELS[model_name]
+                if isinstance(config, dict):
+                    return f"Ready - {model_name} (Endpoint)"
                 return f"Ready - {model_name}"
             return "No model selected"
 
         def on_model_loaded(model_name: str) -> tuple[str, str]:
             """Called after model is used. Returns updated status and GPU info."""
+            if model_name and model_name in AVAILABLE_MODELS:
+                config = AVAILABLE_MODELS[model_name]
+                if isinstance(config, dict):
+                    return f"[OK] {model_name} (Cloud)", "Endpoint (no local GPU)"
             return f"[OK] {model_name} ready", format_gpu_memory_status()
 
         # Wire up events
