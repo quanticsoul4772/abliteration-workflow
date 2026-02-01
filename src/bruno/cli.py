@@ -19,12 +19,25 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 if "HF_TOKEN" not in os.environ:
     env_file = os.path.join(os.getcwd(), ".env")
     if os.path.exists(env_file):
-        with open(env_file) as f:
-            for line in f:
-                if line.startswith("HF_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    os.environ["HF_TOKEN"] = token
-                    break
+        try:
+            # Try different encodings for Windows
+            for encoding in ["utf-8", "utf-8-sig", "latin-1"]:
+                try:
+                    with open(env_file, encoding=encoding) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("HF_TOKEN="):
+                                token = (
+                                    line.split("=", 1)[1].strip().strip('"').strip("'")
+                                )
+                                if token and token != "your_token_here":
+                                    os.environ["HF_TOKEN"] = token
+                                break
+                    break  # Successfully read file
+                except UnicodeDecodeError:
+                    continue  # Try next encoding
+        except Exception:
+            pass  # Silently continue if .env reading fails
 
 import click
 
