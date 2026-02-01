@@ -211,15 +211,21 @@ class BrunoChat:
 
             return response
 
-        except torch.cuda.OutOfMemoryError:
-            rich_print("\n[red]GPU out of memory![/]")
-            rich_print("[yellow]Try: bruno chat --model {self.model_name} --4bit[/]")
+        except torch.cuda.OutOfMemoryError as e:
+            rich_print(f"\n[red]GPU out of memory: {e}[/]")
+            rich_print(f"[yellow]Try: bruno chat --model {self.model_name} --4bit[/]")
             empty_cache()
             return "[ERROR: OOM]"
 
         except Exception as e:
+            # Show full error with traceback for debugging
+            import traceback
+
             logger.error(f"Generation error: {e}")
-            rich_print(f"\n[red]Error generating response: {e}[/]")
+            rich_print("\n[red]Error generating response:[/]")
+            rich_print(f"[red]{e}[/]")
+            rich_print("\n[dim]Full traceback:[/]")
+            traceback.print_exc()
             return f"[ERROR: {e}]"
 
     def run_interactive(self):
