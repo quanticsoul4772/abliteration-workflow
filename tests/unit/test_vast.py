@@ -101,6 +101,70 @@ class TestAPIKeyValidation:
             validate_api_key("key with spaces")
 
 
+class TestEnvFileEncoding:
+    """Test .env file encoding detection."""
+
+    def test_check_env_file_encoding_utf8_ok(self, tmp_path):
+        """Test that UTF-8 encoded .env file passes check."""
+        from bruno.vast import check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("VAST_API_KEY=test-key\n", encoding="utf-8")
+        # Should not raise
+        check_env_file_encoding(env_file)
+
+    def test_check_env_file_encoding_utf16_le_detected(self, tmp_path):
+        """Test that UTF-16 LE encoded .env file is detected."""
+        from bruno.vast import EnvFileEncodingError, check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        # Write with UTF-16 LE BOM
+        env_file.write_bytes(b"\xff\xfeV\x00A\x00S\x00T\x00")
+        with pytest.raises(EnvFileEncodingError) as exc_info:
+            check_env_file_encoding(env_file)
+        assert "UTF-16 LE" in str(exc_info.value)
+        assert "iconv" in str(exc_info.value)  # Check fix instructions included
+
+    def test_check_env_file_encoding_utf16_be_detected(self, tmp_path):
+        """Test that UTF-16 BE encoded .env file is detected."""
+        from bruno.vast import EnvFileEncodingError, check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        # Write with UTF-16 BE BOM
+        env_file.write_bytes(b"\xfe\xff\x00V\x00A\x00S\x00T")
+        with pytest.raises(EnvFileEncodingError) as exc_info:
+            check_env_file_encoding(env_file)
+        assert "UTF-16 BE" in str(exc_info.value)
+
+    def test_check_env_file_encoding_null_bytes_detected(self, tmp_path):
+        """Test that UTF-16 without BOM (null bytes) is detected."""
+        from bruno.vast import EnvFileEncodingError, check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        # Write UTF-16 LE without BOM (null bytes between ASCII chars)
+        env_file.write_bytes(b"V\x00A\x00S\x00T\x00")
+        with pytest.raises(EnvFileEncodingError) as exc_info:
+            check_env_file_encoding(env_file)
+        assert "null bytes" in str(exc_info.value)
+
+    def test_check_env_file_encoding_empty_file_ok(self, tmp_path):
+        """Test that empty .env file passes check."""
+        from bruno.vast import check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        env_file.write_bytes(b"")
+        # Should not raise
+        check_env_file_encoding(env_file)
+
+    def test_check_env_file_encoding_nonexistent_ok(self, tmp_path):
+        """Test that nonexistent .env file passes check."""
+        from bruno.vast import check_env_file_encoding
+
+        env_file = tmp_path / ".env"
+        # Should not raise (file doesn't exist)
+        check_env_file_encoding(env_file)
+
+
 class TestVastConfig:
     """Test VastConfig dataclass and configuration loading."""
 
@@ -154,6 +218,8 @@ class TestVastConfig:
 
     def test_vast_config_from_env_with_dotenv_file(self):
         """Test VastConfig.from_env reads .env file."""
+        from unittest.mock import mock_open
+
         from bruno.vast import VastConfig
 
         env_content = """
@@ -163,11 +229,15 @@ LOCAL_MODELS_DIR=/dotenv/models
 EMPTY_VAR=
 PLACEHOLDER_VAR=your_api_key_here
 """
+        # UTF-8 encoded content for the encoding check (first 4 bytes)
+        env_bytes = env_content.encode("utf-8")
 
         with patch.dict("os.environ", {}, clear=True):
             with patch("pathlib.Path.exists", return_value=True):
                 with patch("pathlib.Path.read_text", return_value=env_content):
-                    config = VastConfig.from_env()
+                    # Mock the binary file open for encoding check
+                    with patch("builtins.open", mock_open(read_data=env_bytes)):
+                        config = VastConfig.from_env()
 
         assert config.api_key == "dotenv-api-key"
 

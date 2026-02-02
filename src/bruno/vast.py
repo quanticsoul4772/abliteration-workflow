@@ -112,6 +112,12 @@ class APIKeyValidationError(ValueError):
     pass
 
 
+class EnvFileEncodingError(ValueError):
+    """Raised when .env file has incorrect encoding (e.g., UTF-16 instead of UTF-8)."""
+
+    pass
+
+
 def validate_api_key(api_key: str) -> bool:
     """Validate that an API key contains only safe characters.
 
@@ -140,6 +146,68 @@ def validate_api_key(api_key: str) -> bool:
     return True
 
 
+def check_env_file_encoding(env_file: Path) -> None:
+    """Check that .env file is UTF-8 encoded, not UTF-16 or other encodings.
+
+    Windows Notepad and some other editors save files in UTF-16 by default,
+    which causes UnicodeDecodeError when reading with UTF-8.
+
+    Args:
+        env_file: Path to the .env file to check.
+
+    Raises:
+        EnvFileEncodingError: If the file is not UTF-8 encoded.
+    """
+    if not env_file.exists():
+        return
+
+    # Read first few bytes to check for BOM (Byte Order Mark)
+    with open(env_file, "rb") as f:
+        header = f.read(4)
+
+    if not header:
+        return  # Empty file is fine
+
+    # Check for UTF-32 BOM FIRST (must be before UTF-16 since they share prefix)
+    # UTF-32 LE: 0xFF 0xFE 0x00 0x00
+    # UTF-32 BE: 0x00 0x00 0xFE 0xFF
+    if header == b"\xff\xfe\x00\x00" or header == b"\x00\x00\xfe\xff":
+        raise EnvFileEncodingError(
+            ".env file is encoded as UTF-32, but UTF-8 is required.\n"
+            "Re-save the file with UTF-8 encoding."
+        )
+
+    # Check for UTF-16 BOM (most common issue from Windows Notepad)
+    # UTF-16 LE: 0xFF 0xFE
+    # UTF-16 BE: 0xFE 0xFF
+    if header[:2] == b"\xff\xfe" or header[:2] == b"\xfe\xff":
+        encoding_type = "UTF-16 LE" if header[:2] == b"\xff\xfe" else "UTF-16 BE"
+        raise EnvFileEncodingError(
+            f".env file is encoded as {encoding_type}, but UTF-8 is required.\n"
+            "\n"
+            "This commonly happens when the file is saved with Windows Notepad.\n"
+            "\n"
+            "To fix, run one of these commands:\n"
+            "  Linux/Mac: iconv -f UTF-16LE -t UTF-8 .env > .env.tmp && mv .env.tmp .env\n"
+            "  Windows:   Get-Content .env | Set-Content -Encoding UTF8 .env.fixed; Move-Item .env.fixed .env -Force\n"
+            "\n"
+            "Or check encoding with: file .env"
+        )
+
+    # Check for null bytes which indicate UTF-16 without BOM
+    # (e.g., H.F._.T.O.K.E.N. pattern where . is null byte)
+    if b"\x00" in header:
+        raise EnvFileEncodingError(
+            ".env file appears to be UTF-16 encoded (contains null bytes).\n"
+            "\n"
+            "To fix, run one of these commands:\n"
+            "  Linux/Mac: iconv -f UTF-16LE -t UTF-8 .env > .env.tmp && mv .env.tmp .env\n"
+            "  Windows:   Get-Content .env | Set-Content -Encoding UTF8 .env.fixed; Move-Item .env.fixed .env -Force\n"
+            "\n"
+            "Or check encoding with: file .env"
+        )
+
+
 @dataclass
 class VastConfig:
     """Configuration for Vast.ai connection."""
@@ -156,10 +224,14 @@ class VastConfig:
 
         Raises:
             APIKeyValidationError: If VAST_API_KEY contains shell metacharacters.
+            EnvFileEncodingError: If .env file is not UTF-8 encoded.
         """
         # Try to load from .env file first
         env_file = Path(".env")
         if env_file.exists():
+            # Check encoding before attempting to read
+            check_env_file_encoding(env_file)
+
             for line in env_file.read_text().splitlines():
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
