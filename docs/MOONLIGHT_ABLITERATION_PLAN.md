@@ -210,6 +210,44 @@ These are critical mistakes from previous abliteration runs. **DO NOT REPEAT THE
 - ✅ Verify fix worked: `file .env` should show "ASCII text" or "UTF-8"
 - ✅ Use editors that save as UTF-8 by default (VS Code, not Notepad)
 
+### Mistake 20: Destroying Loading Instances Instead of Waiting
+**What happened:** AI destroyed 4 Vast.ai instances that were still in "loading" status instead of waiting 3-5 minutes for them to become ready. This wasted money and time.
+
+**Prevention:**
+- ✅ Instances take 3-5 minutes to fully load - WAIT
+- ✅ Status "loading" is NORMAL - do not destroy
+- ✅ Only destroy if instance is stuck loading for 10+ minutes
+- ✅ Check `uv run bruno-vast list` and wait for status "running"
+
+### Mistake 21: Starting Downloads Multiple Times
+**What happened:** AI started the model download command 3+ times when user said it was already downloading. Created duplicate processes wasting bandwidth and causing confusion.
+
+**Prevention:**
+- ✅ Before starting ANY download, check: `ps aux | grep python`
+- ✅ If user says "it's downloading" - LISTEN and don't start another
+- ✅ Check existing processes before running new commands
+- ✅ If duplicate processes exist, kill them: `kill PID`
+
+### Mistake 22: Transformers Version Incompatibility (5.0.0 vs 4.51.0)
+**What happened:** Vast.ai pytorch image has transformers 5.0.0 which is incompatible with Moonlight's custom model code. Error: `ImportError: cannot import name 'is_torch_fx_available'`
+
+**Prevention:**
+- ✅ Install specific transformers version: `pip install transformers==4.51.0`
+- ✅ Clear HuggingFace module cache after version change:
+  ```bash
+  rm -rf /root/.cache/huggingface/modules/transformers_modules
+  ```
+- ✅ Moonlight requires transformers 4.51.0 (not 4.48.0, not 5.0.0)
+
+### Mistake 23: Not Listening to User Instructions
+**What happened:** User repeatedly said "it's downloading" and "wait" but AI kept running new commands and destroying instances.
+
+**Prevention:**
+- ✅ When user gives instruction - FOLLOW IT
+- ✅ "Wait" means WAIT - do not take action
+- ✅ "It's downloading" means DO NOT start another download
+- ✅ If unsure, ASK - don't assume and act
+
 ---
 
 ## Model Specifications
@@ -1016,3 +1054,29 @@ Improvements:
 2. **Class imbalance is expected:** Highly restrictive models like Moonlight refuse almost everything
 3. **Error handling works:** All v2.0.0 graceful handlers functioned correctly
 4. **MoE support confirmed:** Bruno successfully abliterates Moonlight's DeepSeek-V3 style MoE architecture
+5. **Wait for instances to load:** 3-5 minutes is normal, don't destroy loading instances
+6. **Check before starting downloads:** Use `ps aux | grep python` to see if download is already running
+7. **Listen to user:** When user says "wait" or "it's downloading" - STOP and LISTEN
+
+---
+
+## Local Testing Results (February 2026)
+
+### Test Configuration
+- **GPU:** 2x RTX 4090 (48GB total) on Vast.ai
+- **Instance:** ssh6.vast.ai:35720 @ $0.65/hr
+- **Model:** rawcell/Moonlight-16B-A3B-Instruct-abliterated (from HuggingFace)
+- **transformers:** 4.51.0 (required - 5.0.0 is incompatible)
+
+### Test Process
+1. Downloaded model from HuggingFace (30GB, 7 safetensor shards)
+2. Fixed transformers version (5.0.0 → 4.51.0)
+3. Cleared HuggingFace module cache
+4. Model loaded successfully across 2x RTX 4090 (~31GB VRAM used)
+5. Generation working - received deprecation warning about `seen_tokens` (harmless)
+
+### Key Technical Notes
+- **GPU Memory:** ~15GB per GPU when model distributed across 2x RTX 4090
+- **Load time:** Several minutes for 30GB model
+- **Gradio chat app:** Available on port 7860 for interactive testing
+- **Port forwarding:** `ssh -L 7860:localhost:7860 -p PORT root@HOST`
