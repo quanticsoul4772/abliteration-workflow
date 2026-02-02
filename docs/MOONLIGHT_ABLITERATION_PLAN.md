@@ -129,6 +129,59 @@ These are critical mistakes from previous abliteration runs. **DO NOT REPEAT THE
 - ✅ Or use config.toml file instead of CLI args
 - ✅ See detailed steps in ABLITERATION_CHECKLIST.md → "Model-Specific Setup Notes"
 
+### Mistake 11: Not Reading the Plan Before Acting
+**What happened:** AI assistant started creating instances and running commands without reading the plan first, wasting money and time.
+
+**Prevention:**
+- ✅ READ THE PLAN COMPLETELY before taking ANY action
+- ✅ Follow SESSION START PROTOCOL exactly
+- ✅ Do not skip steps or deviate from the documented procedure
+
+### Mistake 12: Using config.toml Instead of CLI Flags
+**What happened:** AI used config.toml to configure bruno instead of CLI flags as specified in the plan, causing issues.
+
+**Prevention:**
+- ✅ Use the EXACT command templates from this document
+- ✅ Pass ALL flags via CLI as shown in the plan
+- ✅ Do not create config.toml files - use CLI args
+
+### Mistake 13: Disabling Features to "Fix" Errors
+**What happened:** When errors occurred (SupervisedProbeError, ConceptConeError), AI disabled features (`ensemble_probe_pca=false`, `use_supervised_probing=false`) instead of investigating the root cause.
+
+**Prevention:**
+- ✅ NEVER disable features to work around errors
+- ✅ Stop and report errors to user - list options
+- ✅ Errors mean something is wrong - fix it, don't hide it
+
+**Note (v2.0.0+):** Bruno now handles these errors gracefully:
+- When `SupervisedProbeError` or `ConceptConeError` occurs, Bruno prints a warning and continues with PCA-only extraction
+- This is **NOT** a silent fallback - user is explicitly notified
+- Example: `[yellow] * Ensemble extraction failed: Class imbalance... Continuing with PCA-only extraction[/yellow]`
+
+### Mistake 14: Wrong GPU Selection
+**What happened:** H200 (141GB) was used when plan recommends A100 40GB or A6000 for cost efficiency.
+
+**Prevention:**
+- ✅ Read "Recommended GPU Tiers" section in the plan
+- ✅ A100 40GB or A6000 is recommended for 16B MoE models
+- ✅ H200 works but costs more than needed (~$2/hr vs $0.70-1.50/hr)
+
+### Mistake 15: Bruno CLI Changed - No --model Flag
+**What happened:** `bruno --model` fails with "No such option: --model". The CLI structure changed.
+
+**Prevention:**
+- ✅ Check `bruno --help` before running commands
+- ✅ May need to use `bruno abliterate --model` or config.toml
+- ✅ Verify CLI syntax on the GPU instance before starting
+
+### Mistake 16: Pre-commit Hooks Cause Timeout
+**What happened:** Git commits timed out because pre-commit hooks run pytest (60s timeout per test).
+
+**Prevention:**
+- ✅ Use 300+ second timeout for git commit commands
+- ✅ Or run tests manually first, then commit
+- ✅ Do NOT use `--no-verify` to skip tests
+
 ---
 
 ## Model Specifications
@@ -717,6 +770,29 @@ uv run bruno-vast terminate INSTANCE_ID
 1. Use 4-bit quantization
 2. Reduce batch size: `--batch-size 2`
 3. Use larger GPU
+
+### Issue: SupervisedProbeError (Class Imbalance)
+
+**Cause:** Model refuses almost all prompts (or complies with almost all), leaving insufficient samples for supervised probing.
+
+**Example:** `SupervisedProbeError: Class imbalance prevents supervised probing: refusals=397, comply=3`
+
+**Behavior (v2.0.0+):**
+- Bruno prints a warning explaining the issue
+- Automatically continues with PCA-only extraction
+- User is explicitly notified - NOT a silent fallback
+- Abliteration still works, just without the supervised probe enhancement
+
+**This is expected for highly restrictive models like Moonlight.**
+
+### Issue: ConceptConeError (Poor Clustering)
+
+**Cause:** Harmful prompts don't form distinct categories, or model uses similar refusal patterns.
+
+**Behavior (v2.0.0+):**
+- Bruno prints a warning explaining the issue
+- Continues without concept cones
+- User is explicitly notified
 
 ### Issue: Model still moralizes after abliteration
 

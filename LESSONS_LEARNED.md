@@ -688,7 +688,7 @@ See `scripts/setup_runpod_a100.md` for RunPod setup instructions.
 - **GPU:** H200 141GB on Vast.ai
 - **Result:** **0 refusals, KL=0.26** (Trial 173 of 200)
 - **Output:** `Qwen2.5-Coder-32B-trial173` (65GB)
-- **Process:** 
+- **Process:**
   1. Ran 200-trial Optuna optimization on H200
   2. Trial 173 identified as best (0 refusals, lowest KL)
   3. Restored trial from SQLite database
@@ -714,6 +714,8 @@ See `scripts/setup_runpod_a100.md` for RunPod setup instructions.
 - [x] Implement layer-wise caching (v1.2.0) - 55-75% memory reduction
 - [x] Document Trial 173 success (0 refusals, KL=0.26)
 - [x] Update all documentation to use "bruno" naming consistently
+- [x] **Remove silent PCA fallbacks** - extraction methods now raise errors (v2.0.0)
+- [x] **Add explicit error handling in main.py** - catches errors, warns user, continues with PCA
 - [ ] Implement process lock file to prevent multi-instance
 - [ ] Add GPU memory pre-check before model loading
 - [ ] Consider adding 4-bit quantization support (bitsandbytes)

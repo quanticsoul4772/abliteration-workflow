@@ -596,12 +596,27 @@ bruno --model Qwen/Qwen2.5-Coder-32B-Instruct --cache-weights false
 
 **Cause:** GQA (Grouped Query Attention) models are not compatible with circuit ablation.
 
-**Affected models:** Llama 3.x, Qwen2.5, and other GQA models.
+**Affected models:** Llama 3.x, Qwen2.5, Moonlight, and other GQA models.
 
 **Solution:** Use standard layer-level ablation instead:
 ```bash
 # Disable circuit ablation for GQA models
-bruno --model meta-llama/Llama-3.1-8B-Instruct --use-circuit-ablation false
+bruno --use-circuit-ablation false
+```
+
+### CAA Extraction Failing
+**Problem:** CAA (Contrastive Activation Addition) extraction fails.
+
+**Cause:** The compliance direction extraction couldn't find a valid direction, often due to the model refusing all prompts or complying with all prompts.
+
+**Behavior (v2.0.0+):** Bruno handles this gracefully with explicit user notification:
+1. Prints a warning explaining why CAA extraction failed
+2. Continues without CAA (abliteration still works, just without the "add compliance" step)
+3. User is explicitly notified - **NOT a silent fallback**
+
+**Manual override:** To disable CAA from the start:
+```bash
+bruno --use-caa false
 ```
 
 ### Moonlight-16B MoE Memory Requirements
@@ -632,13 +647,39 @@ bruno --model meta-llama/Llama-3.1-8B-Instruct --use-circuit-ablation false
 See `docs/ABLITERATION_CHECKLIST.md` for full Moonlight setup guide.
 
 ### Ensemble Probe Failing
-**Problem:** RuntimeError about class imbalance or low accuracy.
+**Problem:** `SupervisedProbeError` about class imbalance or low accuracy.
 
-**Cause:** Supervised probing requires balanced data (≥10 samples per class) and reasonable accuracy.
+**Cause:** Supervised probing requires balanced data (≥10 samples per class) and reasonable probe accuracy (≥0.65 by default).
 
-**Solution:** Check your bad_prompts dataset triggers actual refusals, or use PCA-only mode:
+**Behavior (v2.0.0+):** Bruno handles this gracefully with explicit user notification:
+1. Prints a warning explaining why supervised probing failed
+2. Continues with PCA-only extraction automatically
+3. User is explicitly notified - **NOT a silent fallback**
+
+**Example output:**
+```
+[yellow] * Ensemble extraction failed: Class imbalance prevents supervised probing: refusals=397, comply=3...[/yellow]
+[yellow] * Continuing with PCA-only extraction[/yellow]
+```
+
+**Manual override:** To force PCA-only from the start:
 ```bash
-bruno --model MODEL --ensemble-probe-pca false --use-pca-extraction true
+bruno --ensemble-probe-pca false
+```
+
+### Concept Cones Failing
+**Problem:** `ConceptConeError` about poor clustering quality or no valid cones.
+
+**Cause:** The harmful prompts don't form distinct categories, or the model uses similar refusal patterns for all categories.
+
+**Behavior (v2.0.0+):** Bruno handles this gracefully with explicit user notification:
+1. Prints a warning explaining why concept cones failed
+2. Continues with PCA-only extraction automatically
+3. User is explicitly notified - **NOT a silent fallback**
+
+**Manual override:** To disable concept cones from the start:
+```bash
+bruno --use-concept-cones false
 ```
 
 ### pip install --force-reinstall Breaks Environment
