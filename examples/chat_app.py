@@ -734,11 +734,14 @@ class ModelManager:
         logger.info(f"Loading model from {model_path}...")
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_path, trust_remote_code=True
+            )
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
-                dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                 device_map="auto",
+                trust_remote_code=True,
             )
             self.current_model_path = model_path
             logger.info(f"Model loaded on {self.device}")
@@ -1207,12 +1210,15 @@ def create_ui() -> gr.Blocks:
         # Event handlers for Gradio 6 messages format
         def user_message(
             user_msg: str, history: list[dict[str, str]] | None
-        ) -> tuple[str, list[dict[str, str]]]:
+        ) -> tuple[dict, list[dict[str, str]]]:
             """Add user message to history."""
             if history is None:
                 history = []
+            if not user_msg.strip():
+                return gr.update(), history
             history = history + [{"role": "user", "content": user_msg}]
-            return "", history
+            # Return gr.update to explicitly clear and keep interactive
+            return gr.update(value="", interactive=True), history
 
         def bot_response(
             history: list[dict[str, str]],
@@ -1268,7 +1274,9 @@ def create_ui() -> gr.Blocks:
             bot_response,
             [chatbot, model_dropdown, max_tokens, temperature, enable_web_search],
             chatbot,
-        ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status])
+        ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status]).then(
+            lambda: gr.update(value="", interactive=True), outputs=[msg]
+        )
 
         submit_btn.click(
             user_message, [msg, chatbot], [msg, chatbot], queue=False
@@ -1276,7 +1284,9 @@ def create_ui() -> gr.Blocks:
             bot_response,
             [chatbot, model_dropdown, max_tokens, temperature, enable_web_search],
             chatbot,
-        ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status])
+        ).then(on_model_loaded, [model_dropdown], [status_text, gpu_status]).then(
+            lambda: gr.update(value="", interactive=True), outputs=[msg]
+        )
 
         model_dropdown.change(update_status, [model_dropdown], [status_text])
 
