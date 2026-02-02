@@ -696,7 +696,9 @@ class TestConstants:
         """Test MIN_DOWNLOAD_SPEED is reasonable."""
         from bruno.vast import MIN_DOWNLOAD_SPEED
 
-        assert MIN_DOWNLOAD_SPEED >= 100  # At least 100 Mbps
+        assert (
+            MIN_DOWNLOAD_SPEED >= 50
+        )  # At least 50 Mbps (reduced for better availability)
 
     def test_models_dir(self):
         """Test MODELS_DIR path."""

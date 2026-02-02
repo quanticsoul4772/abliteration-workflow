@@ -47,49 +47,49 @@ console = Console()
 GPU_TIERS = {
     "RTX_4090": {
         "gpu_name": "RTX_4090",
-        "max_price": 0.50,
+        "max_price": 1.00,
         "min_vram": 24,
         "disk_gb": 50,
         "description": "24GB VRAM - Good for 7B-8B models",
     },
     "A6000": {
         "gpu_name": "RTX_A6000",
-        "max_price": 0.80,
+        "max_price": 1.50,
         "min_vram": 48,
         "disk_gb": 80,
         "description": "48GB VRAM - Good for 14B-30B models",
     },
     "A100_40GB": {
         "gpu_name": "A100",
-        "max_price": 1.00,
+        "max_price": 2.00,
         "min_vram": 40,
         "disk_gb": 100,
         "description": "40GB VRAM - Good for 14B-32B models",
     },
     "A100_80GB": {
         "gpu_name": "A100",
-        "max_price": 2.00,
+        "max_price": 3.50,
         "min_vram": 80,
         "disk_gb": 150,
         "description": "80GB VRAM - Good for 32B-70B models",
     },
     "A100_SXM": {
         "gpu_name": "A100_SXM4",
-        "max_price": 2.50,
+        "max_price": 4.00,
         "min_vram": 80,
         "disk_gb": 150,
         "description": "80GB VRAM SXM4 - Fastest A100 variant",
     },
     "H100": {
         "gpu_name": "H100",
-        "max_price": 4.00,
+        "max_price": 6.00,
         "min_vram": 80,
         "disk_gb": 150,
         "description": "80GB VRAM - Fastest, good for 70B+ models",
     },
     "H200": {
         "gpu_name": "H200",
-        "max_price": 5.00,
+        "max_price": 8.00,
         "min_vram": 141,
         "disk_gb": 200,
         "description": "141GB VRAM - Best for 32B-70B+ models, fastest PCA",
@@ -97,7 +97,7 @@ GPU_TIERS = {
 }
 
 DEFAULT_IMAGE = "pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel"
-MIN_DOWNLOAD_SPEED = 200
+MIN_DOWNLOAD_SPEED = 50  # Reduced from 200 - still adequate for model downloads
 MODELS_DIR = "/workspace/models"
 
 
@@ -884,8 +884,14 @@ def search_gpus(ctx, tier: str):
     default=None,
     help="Disk size in GB (overrides tier default)",
 )
+@click.option(
+    "--relaxed",
+    "-r",
+    is_flag=True,
+    help="Relax filters: no inet_down requirement, 2x price tolerance",
+)
 @click.pass_context
-def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
+def create_pod(ctx, tier: str, num_gpus: int, disk: int | None, relaxed: bool):
     """Create a new Vast.ai instance."""
     config = ctx.obj["config"]
 
@@ -909,6 +915,10 @@ def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
     disk_gb = tier_config["disk_gb"]
     max_price = tier_config["max_price"] * num_gpus
 
+    # Double price tolerance if relaxed mode
+    if relaxed:
+        max_price *= 2
+
     # Override disk size if specified via --disk flag
     if disk is not None:
         try:
@@ -920,9 +930,10 @@ def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
         disk_gb = max(disk_gb, 400)  # 32B+ models need more space for weights + cache
 
     console.print()
+    relaxed_str = " [yellow](relaxed mode)[/]" if relaxed else ""
     console.print(
         Panel.fit(
-            f"[bold]Creating Vast.ai Instance[/]\n\n"
+            f"[bold]Creating Vast.ai Instance[/]{relaxed_str}\n\n"
             f"GPU Tier: [cyan]{tier}[/] ({tier_config['description']})\n"
             f"Num GPUs: [cyan]{num_gpus}[/]\n"
             f"Disk: [cyan]{disk_gb} GB[/]\n"
@@ -935,12 +946,21 @@ def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
     console.print("\n[yellow]Finding best GPU offer...[/]")
 
     vram_mb = tier_config["min_vram"] * 1024
-    query = (
-        f"gpu_name={tier_config['gpu_name']} "
-        f"rentable=true num_gpus>={num_gpus} "
-        f"inet_down>={MIN_DOWNLOAD_SPEED} "
-        f"dph<={max_price}"
-    )
+
+    # Build query - relaxed mode skips inet_down filter
+    if relaxed:
+        query = (
+            f"gpu_name={tier_config['gpu_name']} "
+            f"rentable=true num_gpus>={num_gpus} "
+            f"dph<={max_price}"
+        )
+    else:
+        query = (
+            f"gpu_name={tier_config['gpu_name']} "
+            f"rentable=true num_gpus>={num_gpus} "
+            f"inet_down>={MIN_DOWNLOAD_SPEED} "
+            f"dph<={max_price}"
+        )
     if tier_config["min_vram"] >= 40:
         query += f" gpu_ram>={vram_mb}"
 
@@ -951,6 +971,8 @@ def create_pod(ctx, tier: str, num_gpus: int, disk: int | None):
 
     if code != 0 or not stdout.strip():
         console.print("[red]Error: No suitable GPU offers found[/]")
+        if not relaxed:
+            console.print("[yellow]Tip: Try --relaxed flag to relax filters[/]")
         console.print(f"Try: bruno-vast gpus {tier}")
         return
 
