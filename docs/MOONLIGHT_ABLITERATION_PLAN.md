@@ -1174,3 +1174,81 @@ A custom benchmark script (`benchmark_moonlight.py`) was created to work around 
 - Evaluates HellaSwag (200 samples)
 - Evaluates GSM8K (100 samples with chain-of-thought)
 - Saves results to JSON for reproducibility
+
+---
+
+## DPO Fine-Tuning Attempt (February 2026)
+
+### Goal
+Improve benchmark scores using Direct Preference Optimization (DPO) fine-tuning with the `mlabonne/orpo-dpo-mix-40k` dataset.
+
+### Result: ❌ BLOCKED by Architecture Limitation
+
+**The Moonlight model uses DeepSeek-V3's MoE architecture which has a hardcoded training mode restriction.**
+
+### Technical Details
+
+The MoE gate module in DeepSeek-V3's architecture has this assertion in its forward method:
+
+```python
+# From modeling_deepseek.py line 440
+assert not self.training
+```
+
+This prevents ANY fine-tuning approach that requires putting the model in training mode, including:
+- DPO (Direct Preference Optimization)
+- SFT (Supervised Fine-Tuning)
+- RLHF (Reinforcement Learning from Human Feedback)
+- Standard LoRA fine-tuning
+
+### What We Tried
+
+1. **Standard DPO with TRL library** - Failed with `AssertionError` at MoE gate
+2. **LoRA targeting only attention layers** - Same error (MoE gate is in the forward path)
+3. **Patching model to eval mode** - DPOTrainer internally calls `model.train()`, re-triggering the assertion
+
+### Why This Limitation Exists
+
+DeepSeek-V3's MoE implementation uses different routing strategies for training vs inference:
+- **Training:** Uses auxiliary load-balancing losses and different top-k routing
+- **Inference:** Uses deterministic routing without load-balancing
+
+The public release only supports inference mode. Training would require:
+- Access to the full training-mode MoE implementation
+- Significant architectural modifications to remove the assertion
+- Re-implementation of load-balancing losses for stable MoE training
+
+### Alternative Approaches (Not Yet Attempted)
+
+1. **Inference-based Preference Learning**
+   - Use activation steering or representation engineering
+   - Modify activations at inference time based on preference data
+   - No training required - works with inference-only models
+
+2. **Prompt Engineering**
+   - Create system prompts that improve response quality
+   - Use few-shot examples to guide behavior
+   - Zero training required
+
+3. **Re-abliterate with Better Settings**
+   - Use more trials (500+)
+   - Adjust sacred direction protection
+   - May reduce KL divergence while maintaining refusal reduction
+
+4. **Wait for DeepSeek-V3 Training Release**
+   - DeepSeek may release training-compatible code in the future
+   - Would enable standard fine-tuning approaches
+
+### Conclusion
+
+**DPO fine-tuning is not possible for Moonlight/DeepSeek-V3 models** without access to the training-mode MoE implementation. The current benchmark scores (MMLU 48%, HellaSwag 56%, GSM8K 51%) represent the best achievable through abliteration alone.
+
+For users wanting higher benchmark scores, consider:
+- Using a non-MoE model (e.g., Llama, Qwen dense models)
+- Using prompt engineering to improve specific tasks
+- Waiting for DeepSeek to release training-compatible code
+
+### Files Created
+
+- `dpo_train_moonlight.py` - DPO training script (works for non-MoE models, fails on Moonlight)
+- Documents the approach and error for future reference
