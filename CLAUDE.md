@@ -604,6 +604,33 @@ bruno --model Qwen/Qwen2.5-Coder-32B-Instruct --cache-weights false
 bruno --model meta-llama/Llama-3.1-8B-Instruct --use-circuit-ablation false
 ```
 
+### Moonlight-16B MoE Memory Requirements
+**Problem:** Moonlight-16B-A3B-Instruct causes OOM on A100 80GB despite being "16B" model.
+
+**Root Cause:** Moonlight is a Mixture of Experts (MoE) model. While only 3B parameters are *active* per token, the FULL model weights are ~63GB in BF16.
+
+**Memory breakdown:**
+| Component | Size |
+|-----------|------|
+| Model weights | 63 GB |
+| BART-MNLI detector | 1.5 GB |
+| Residual extraction | 24 GB |
+| **Total needed** | **~88 GB** |
+
+**GPU requirements:**
+| GPU | VRAM | Status |
+|-----|------|--------|
+| A100 40GB | 40GB | Model doesn't fit |
+| A100 80GB | 80GB | OOM during residuals |
+| **H200 141GB** | 141GB | **Required** |
+
+**Additional Moonlight requirements:**
+- `pip install tiktoken` (required dependency)
+- `transformers==4.48.2` (specific version required)
+- `trust_remote_code=True` (handled in bruno v2.0.0+)
+
+See `docs/ABLITERATION_CHECKLIST.md` for full Moonlight setup guide.
+
 ### Ensemble Probe Failing
 **Problem:** RuntimeError about class imbalance or low accuracy.
 

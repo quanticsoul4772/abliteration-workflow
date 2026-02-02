@@ -633,7 +633,7 @@ ____________________
 |---|-------|------|--------|-----|------|-------|
 | 1 | Qwen2.5-7B-Instruct | Feb 2026 | ⚠️ Partial | 4x RTX 4090 | ~$15 | orthogonalization disabled |
 | 2 | Qwen2.5-Coder-32B-Instruct | Feb 2026 | ✅ Success | H200 | ~$25 | Trial 173, 0 refusals |
-| 3 | Moonlight-16B-A3B-Instruct | Feb 2026 | 🔄 Pending | TBD | TBD | First MoE model |
+| 3 | Moonlight-16B-A3B-Instruct | Feb 2026 | 🔴 BLOCKED | A100 SXM4 80GB | ~$4-5 | Needs H200 141GB (MoE uses 63GB + ops) |
 
 ---
 
@@ -667,6 +667,50 @@ ____________________
 --compile              # 1.5-2x inference speedup
 --n-trials 200         # Default, adjust as needed
 ```
+
+---
+
+## 🔧 ALTERNATIVE INSTALLATION METHODS
+
+**When template onstart fails or git install has submodule issues:**
+
+### Method 1: Wheel Upload (Most Reliable)
+
+```bash
+# Build locally
+uv build
+
+# Get connection info
+vastai show instances
+# Note the PORT and HOST from SSH Addr column
+
+# Upload wheel
+scp -o StrictHostKeyChecking=no -P <PORT> dist/bruno_ai-*.whl root@<HOST>:/workspace/
+
+# Install on instance
+ssh -o StrictHostKeyChecking=no -p <PORT> root@<HOST> 'pip install /workspace/bruno_ai-*.whl'
+
+# Verify
+ssh -p <PORT> root@<HOST> 'which bruno && bruno --help'
+```
+
+### Method 2: uv pip install (Requires uv on instance)
+
+```bash
+# Install uv first
+ssh -p <PORT> root@<HOST> 'pip install uv'
+
+# Install bruno with uv
+ssh -p <PORT> root@<HOST> 'uv pip install --system git+https://github.com/quanticsoul4772/bruno.git'
+```
+
+### Extra Dependencies by Model
+
+| Model | Extra Dependencies |
+|-------|-------------------|
+| Moonlight-16B | `pip install tiktoken` |
+| Qwen models | None (transformers has support) |
+| Llama models | None (requires HF token for gated models) |
 
 ---
 
@@ -840,6 +884,303 @@ echo '=== Python Memory ===' && python3 -c 'import torch; print(torch.cuda.memor
 
 # Memory over time (run in separate terminal)
 uv run bruno-vast exec "while true; do nvidia-smi --query-gpu=timestamp,memory.used --format=csv,noheader; sleep 10; done"
+```
+
+---
+
+## 🔧 MODEL-SPECIFIC SETUP NOTES
+
+**These are lessons learned from specific model abliterations. Reference when running new models.**
+
+---
+
+### Moonlight-16B-A3B-Instruct (MoE Model)
+
+**Date:** February 2026
+**GPU Used:** A100 SXM4 80GB @ $0.91/hr (upgraded from RTX A6000 48GB)
+**Instance ID:** 30833245
+**Status:** 🔴 BLOCKED - Transformers version incompatibility
+
+#### Issue 1: Bruno Installation via Git Fails
+
+**Problem:** `pip install git+https://github.com/quanticsoul4772/bruno.git` fails with submodule error:
+```
+fatal: No url found for submodule path 'tools/llama.cpp' in .gitmodules
+```
+
+**Solution:** Build wheel locally and upload:
+```bash
+# On local machine
+uv build
+# Creates dist/bruno_ai-2.0.0-py3-none-any.whl
+
+# Upload to instance
+scp -o StrictHostKeyChecking=no -P <PORT> dist/bruno_ai-2.0.0-py3-none-any.whl root@<HOST>:/workspace/
+
+# Install on instance
+ssh -p <PORT> root@<HOST> 'pip install /workspace/bruno_ai-2.0.0-py3-none-any.whl'
+```
+
+#### Issue 2: tiktoken Dependency Missing
+
+**Problem:** Moonlight uses tiktoken for tokenization, which isn't in bruno dependencies:
+```
+ImportError: This modeling file requires the following packages that were not
+found in your environment: tiktoken. Run `pip install tiktoken`
+```
+
+**Solution:** Install tiktoken before running:
+```bash
+ssh -p <PORT> root@<HOST> 'pip install tiktoken'
+```
+
+#### Issue 3: trust_remote_code Prompt Blocking
+
+**Problem:** Even with `HF_TRUST_REMOTE_CODE=1` env var, transformers still prompts:
+```
+Do you wish to run the custom code? [y/N]
+```
+This blocks non-interactive execution.
+
+**Solution 1:** Pipe 'y' to bruno:
+```bash
+echo y | bruno ...
+```
+
+**Solution 2:** Use config.toml instead of CLI args:
+```bash
+# Create config.toml in /workspace
+cat > /workspace/config.toml << EOF
+model = "moonshotai/Moonlight-16B-A3B-Instruct"
+n_trials = 2
+auto_select = true
+auto_select_path = "/workspace/models"
+storage = "sqlite:///bruno_study.db"
+study_name = "moonlight-test"
+EOF
+
+# Then just run 'bruno' (reads config.toml automatically)
+cd /workspace && bruno
+```
+
+#### Issue 4: Environment Variables Not Inherited
+
+**Problem:** Vast.ai account-level env vars (set via `vastai create env-var`) don't automatically appear in SSH sessions.
+
+**Solution:** Export them explicitly in the tmux session:
+```bash
+tmux new-session -d -s bruno '
+export HF_TOKEN=hf_xxx
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=1
+cd /workspace
+echo y | bruno 2>&1 | tee bruno.log
+'
+```
+
+#### Issue 5: RTX A6000 48GB Not Enough VRAM
+
+**Problem:** Model loaded 377/377 weights but failed during materialization with:
+```
+Failed (type of None unknown: <class 'NoneType'>. Should be one of a python, numpy, or pytorch object.)
+```
+
+**Root Cause:** 48GB VRAM insufficient - some parameters were offloaded to CPU/meta device.
+
+**Solution:** Upgrade to A100 80GB or higher.
+
+#### Issue 6: Vanilla transformers Works But Bruno Fails (trust_remote_code)
+
+**Problem:** Vanilla transformers loads Moonlight successfully:
+```python
+model = AutoModelForCausalLM.from_pretrained(
+    "moonshotai/Moonlight-16B-A3B-Instruct",
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    trust_remote_code=True  # Required!
+)
+# Model loaded successfully! Device: cuda:0, dtype: torch.bfloat16
+```
+
+But bruno fails because it wasn't passing `trust_remote_code=True`.
+
+**Solution:** Added `trust_remote_code=True` to all `AutoModelForCausalLM.from_pretrained()` and `AutoTokenizer.from_pretrained()` calls in `src/bruno/model.py`.
+
+#### Issue 7: ✅ SOLVED - Transformers Version Incompatibility
+
+**Problem:** Moonlight's custom code is incompatible with most transformers versions.
+
+| Transformers Version | Error |
+|---------------------|-------|
+| 5.0.0 | `cannot import name 'is_torch_fx_available'` |
+| 4.57.6 | `'DynamicCache' object has no attribute 'seen_tokens'` |
+| 4.45.0 | `'NoneType' object has no attribute 'get'` (metadata error) |
+| 4.40.2 | `cannot import name 'bytes_to_unicode'` |
+| **4.48.2** | ✅ **WORKS!** |
+
+**Root Cause:** Moonlight was built for **transformers 4.48.2** specifically. The model card recommends:
+> "python=3.10, torch>=2.1.0, and transformers=4.48.2"
+
+**Solution:** After installing bruno wheel, downgrade transformers:
+```bash
+# Install bruno wheel first
+pip install /workspace/bruno_ai-*.whl
+
+# THEN downgrade transformers (bruno pulls in latest)
+pip install transformers==4.48.2
+```
+
+**Important:** When you reinstall bruno wheel with `--force-reinstall`, it will pull in the latest transformers again. You must reinstall 4.48.2 AFTER each bruno wheel install.
+
+**Also required:** Update config.toml to use bfloat16 and include C4 config:
+```toml
+model = "moonshotai/Moonlight-16B-A3B-Instruct"
+n_trials = 2
+auto_select = true
+auto_select_path = "/workspace/models"
+storage = "sqlite:///bruno_study.db"
+study_name = "moonlight-test"
+dtypes = ["bfloat16"]
+max_batch_size = 16
+batch_size = 16
+cache_weights = false
+
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"
+split = "train[:200]"
+column = "text"
+```
+
+#### Issue 8: ✅ SOLVED - Empty String Crashes BART-MNLI Neural Detector
+
+**Problem:** During baseline validation, bruno crashes with:
+```
+ValueError: You must include at least one label and at least one sequence
+```
+
+**Root Cause:** The BART-MNLI zero-shot classifier crashes when ANY string in a batch is empty (`""`). If Moonlight generates an empty response, the neural detector fails.
+
+**Solution:** Fixed in bruno v2.0.0 - `classify_responses_batched()` and `is_refusal()` now filter out empty strings before passing to the classifier.
+
+**Code fix (src/bruno/evaluator.py):**
+```python
+# Filter out empty strings before classification
+valid_indices = {i for i, r in enumerate(batch) if r.strip()}
+if not valid_indices:
+    return [False] * len(batch)
+
+filtered_batch = [batch[i] for i in sorted(valid_indices)]
+```
+
+#### Issue 9: 🔴 BLOCKING - A100 80GB Insufficient VRAM for Moonlight MoE
+
+**Problem:** OOM during residual extraction even with `cache_weights = false` and `batch_size = 16`.
+
+**Error:**
+```
+OutOfMemoryError: CUDA out of memory. Tried to allocate 24.00 GiB.
+GPU 0 has 79.10 GiB total, 12.71 GiB free.
+```
+
+**Root Cause:** Moonlight-16B-A3B is a MoE (Mixture of Experts) model based on DeepSeek architecture. Despite being "16B active parameters," the FULL model is much larger:
+
+| Component | Memory Usage |
+|-----------|-------------|
+| Model weights (BF16) | ~63 GB |
+| BART-MNLI (neural detector) | ~1.5 GB |
+| **Free for operations** | **~15 GB** |
+| Residual extraction needs | ~24 GB |
+| **Shortfall** | **~9 GB** |
+
+**Why A100 80GB fails:**
+- 63GB model + 1.5GB BART + 15GB working = 80GB
+- Residual extraction needs 24GB → OOM
+
+**Solution:** Use H200 141GB (not A100 80GB) for Moonlight abliteration.
+
+| GPU | VRAM | Moonlight Status |
+|-----|------|------------------|
+| A100 40GB | 40GB | ❌ Model doesn't fit |
+| A100 80GB | 80GB | ❌ OOM during residuals |
+| **H200 141GB** | 141GB | ✅ **Required** |
+
+**Recommended config for H200:**
+```toml
+model = "moonshotai/Moonlight-16B-A3B-Instruct"
+n_trials = 200
+auto_select = true
+auto_select_path = "/workspace/models"
+storage = "sqlite:///bruno_study.db"
+study_name = "moonlight-abliteration"
+dtypes = ["bfloat16"]
+batch_size = 32
+cache_weights = false  # MoE model, keep memory free
+
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"
+split = "train[:200]"
+column = "text"
+```
+
+#### Complete Working Command Sequence for Moonlight
+
+```bash
+# 1. Create instance (after getting offer ID)
+vastai create instance <OFFER_ID> --template_hash 7ea2682501dc881b1097c18f096f7c63 --disk 200
+
+# 2. Wait 5+ minutes for instance to start
+
+# 3. Build and upload wheel (if template onstart didn't work)
+uv build
+scp -o StrictHostKeyChecking=no -P <PORT> dist/bruno_ai-*.whl root@<HOST>:/workspace/
+
+# 4. Install bruno and tiktoken
+ssh -p <PORT> root@<HOST> 'pip install /workspace/bruno_ai-*.whl && pip install tiktoken'
+
+# 5. Create config.toml
+ssh -p <PORT> root@<HOST> 'cat > /workspace/config.toml << EOF
+model = "moonshotai/Moonlight-16B-A3B-Instruct"
+n_trials = 2
+auto_select = true
+auto_select_path = "/workspace/models"
+storage = "sqlite:///bruno_study.db"
+study_name = "moonlight-test"
+EOF'
+
+# 6. Start bruno in tmux
+ssh -p <PORT> root@<HOST> 'tmux new-session -d -s bruno "
+export HF_TOKEN=hf_xxx
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=1
+cd /workspace
+echo y | bruno 2>&1 | tee bruno.log
+"'
+
+# 7. Monitor logs
+ssh -p <PORT> root@<HOST> 'tail -50 /workspace/bruno.log'
+```
+
+---
+
+### Template: Adding New Model Notes
+
+When abliterating a new model, document any issues here using this format:
+
+```
+### <Model Name>
+
+**Date:** <date>
+**GPU Used:** <GPU> @ $<price>/hr
+**Instance ID:** <ID>
+
+#### Issue 1: <Title>
+**Problem:** <what went wrong>
+**Solution:** <how to fix>
+
+#### Complete Working Command Sequence
+<full command sequence that works>
 ```
 
 ---

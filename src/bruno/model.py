@@ -651,7 +651,8 @@ class Model:
 
         try:
             self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-                settings.model
+                settings.model,
+                trust_remote_code=True,
             )
             logger.debug("Tokenizer loaded successfully", model=settings.model)
         except RepositoryNotFoundError as error:
@@ -704,6 +705,7 @@ class Model:
                     settings.model,
                     torch_dtype=dtype,
                     device_map=settings.device_map,
+                    trust_remote_code=True,
                 )
 
                 # A test run can reveal dtype-related problems such as the infamous
@@ -1094,6 +1096,7 @@ class Model:
                 self.settings.model,
                 torch_dtype=self.loaded_dtype,
                 device_map=self.settings.device_map,
+                trust_remote_code=True,
             )
 
     def get_layers(self) -> ModuleList:

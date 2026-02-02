@@ -106,6 +106,29 @@ These are critical mistakes from previous abliteration runs. **DO NOT REPEAT THE
 - ✅ Use `tmux attach` to reconnect if disconnected
 - ✅ Check if process is still running with `ps aux | grep bruno`
 
+### Mistake 8: Bruno Git Install Fails (Submodule Error)
+**What happened:** `pip install git+https://github.com/quanticsoul4772/bruno.git` fails with "No url found for submodule path 'tools/llama.cpp'"
+
+**Prevention:**
+- ✅ Build wheel locally with `uv build`
+- ✅ Upload wheel via scp and install from local file
+- ✅ See detailed steps in ABLITERATION_CHECKLIST.md → "Model-Specific Setup Notes"
+
+### Mistake 9: Missing tiktoken Dependency
+**What happened:** Moonlight models require tiktoken but it's not in bruno dependencies.
+
+**Prevention:**
+- ✅ Install tiktoken before running: `pip install tiktoken`
+- ✅ Check model requirements before starting
+
+### Mistake 10: trust_remote_code Prompt Blocks Execution
+**What happened:** Even with HF_TRUST_REMOTE_CODE=1, transformers prompts interactively.
+
+**Prevention:**
+- ✅ Pipe 'y' to bruno: `echo y | bruno ...`
+- ✅ Or use config.toml file instead of CLI args
+- ✅ See detailed steps in ABLITERATION_CHECKLIST.md → "Model-Specific Setup Notes"
+
 ---
 
 ## Model Specifications

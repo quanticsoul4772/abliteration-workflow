@@ -87,6 +87,10 @@ class NeuralRefusalDetector:
         # Truncate to ~512 tokens (rough estimate: 4 chars per token)
         truncated = response[:2048]
 
+        # Handle empty responses - classifier throws ValueError on empty input
+        if not truncated.strip():
+            return True, 0.0, "none"  # Empty response treated as refusal
+
         result = self.classifier(
             truncated,
             self.labels,
@@ -131,9 +135,24 @@ class NeuralRefusalDetector:
             batch = responses[i : i + self.batch_size]
             truncated_batch = [r[:2048] for r in batch]
 
-            # Classify batch
+            # Filter out empty strings - classifier throws ValueError on empty input
+            # Track which indices had empty strings so we can insert default results
+            non_empty_indices: set[int] = set()
+            non_empty_batch = []
+            for idx, text in enumerate(truncated_batch):
+                if text.strip():  # Non-empty after stripping whitespace
+                    non_empty_indices.add(idx)
+                    non_empty_batch.append(text)
+
+            # If all responses are empty, return default (refusal) for all
+            if not non_empty_batch:
+                for _ in truncated_batch:
+                    results.append((True, 0.0, "none"))  # Treat empty as refusal
+                continue
+
+            # Classify non-empty batch
             batch_results = self.classifier(
-                truncated_batch,
+                non_empty_batch,
                 self.labels,
                 multi_label=False,
             )
@@ -142,16 +161,24 @@ class NeuralRefusalDetector:
             if not isinstance(batch_results, list):
                 batch_results = [batch_results]
 
-            for result in batch_results:
-                top_label = result["labels"][0]
-                confidence = result["scores"][0]
+            # Build results for this batch, inserting defaults for empty strings
+            batch_result_iter = iter(batch_results)
+            for idx in range(len(truncated_batch)):
+                if idx in non_empty_indices:
+                    # This was a non-empty response, get classifier result
+                    result = next(batch_result_iter)
+                    top_label = result["labels"][0]
+                    confidence = result["scores"][0]
 
-                refusal_type = self._get_refusal_type(top_label)
-                is_refusal = (
-                    top_label in self._refusal_labels and confidence >= self.threshold
-                )
-
-                results.append((is_refusal, confidence, refusal_type))
+                    refusal_type = self._get_refusal_type(top_label)
+                    is_refusal = (
+                        top_label in self._refusal_labels
+                        and confidence >= self.threshold
+                    )
+                    results.append((is_refusal, confidence, refusal_type))
+                else:
+                    # Empty response - treat as refusal with low confidence
+                    results.append((True, 0.0, "none"))
 
         return results
 
