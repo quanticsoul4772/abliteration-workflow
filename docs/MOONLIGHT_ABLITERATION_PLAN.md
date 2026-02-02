@@ -182,6 +182,22 @@ These are critical mistakes from previous abliteration runs. **DO NOT REPEAT THE
 - ✅ Or run tests manually first, then commit
 - ✅ Do NOT use `--no-verify` to skip tests
 
+### Mistake 17: HuggingFace Username Not in Plan
+**What happened:** Plan said "YOUR_USERNAME" but didn't specify the actual HuggingFace username. AI wasted time trying wrong namespace, then had to look up token to find username.
+
+**Prevention:**
+- ✅ HuggingFace username is `rawcell` (from .env token)
+- ✅ All repo_id references should use `rawcell/MODEL_NAME`
+- ✅ Token is stored in .env file as HF_TOKEN
+
+### Mistake 18: Not Reading .env Before Cloud Operations
+**What happened:** AI asked for HF token when it was already in .env file.
+
+**Prevention:**
+- ✅ ALWAYS check .env file for tokens before asking user
+- ✅ HF_TOKEN, VAST_API_KEY are stored in .env
+- ✅ Use `cat .env | grep HF` to retrieve token
+
 ---
 
 ## Model Specifications
@@ -593,7 +609,7 @@ This is an abliterated version of [moonshotai/Moonlight-16B-A3B-Instruct](https:
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_id = "YOUR_USERNAME/Moonlight-16B-A3B-Instruct-bruno"
+model_id = "rawcell/Moonlight-16B-A3B-Instruct-abliterated"
 
 tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(
@@ -690,14 +706,14 @@ api = HfApi(token="hf_YOUR_TOKEN")
 
 # Create repository
 api.create_repo(
-    repo_id="YOUR_USERNAME/Moonlight-16B-A3B-Instruct-bruno",
+    repo_id="rawcell/Moonlight-16B-A3B-Instruct-abliterated",
     private=False
 )
 
 # Upload all files
 api.upload_folder(
     folder_path="./models/Moonlight-16B-A3B-Instruct-bruno",
-    repo_id="YOUR_USERNAME/Moonlight-16B-A3B-Instruct-bruno",
+    repo_id="rawcell/Moonlight-16B-A3B-Instruct-abliterated",
     commit_message="Upload abliterated Moonlight-16B model"
 )
 ```
