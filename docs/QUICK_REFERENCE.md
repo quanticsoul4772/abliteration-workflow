@@ -18,9 +18,13 @@ uv run bruno-vast stop
 uv run bruno-vast terminate
 
 # Monitoring
-uv run bruno-vast watch          # Live dashboard (best)
+uv run bruno-vast watch          # Live terminal dashboard
 uv run bruno-vast progress        # Quick status
 uv run bruno-vast exec "tail -f /workspace/bruno.log"  # Raw logs
+
+# Gradio Web Dashboard (NEW!)
+uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///moonlight_reabliteration.db --study STUDY_NAME --share --port 7860'"
+uv run bruno-vast exec "tmux capture-pane -t monitor -p | grep gradio.live"  # Get public URL
 
 # Download results
 uv run bruno-vast models
@@ -145,6 +149,31 @@ git push fork master
 # NEVER push to main bruno repo
 # git push origin master  # ❌ WRONG
 ```
+
+## Gradio Monitor Dashboard
+
+Real-time web dashboard for monitoring abliteration progress:
+
+```bash
+# Upload monitor app to instance
+scp -P <PORT> examples/monitor_app.py root@<HOST>:/workspace/
+
+# Install dependencies
+uv run bruno-vast exec "pip install gradio plotly"
+
+# Start monitor with public share link
+uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --share --port 7860'"
+
+# Get the public Gradio URL
+uv run bruno-vast exec "tmux capture-pane -t monitor -p | grep gradio.live"
+```
+
+**Features:**
+- Real-time trial progress visualization
+- Interactive Plotly charts (optimization history, Pareto front)
+- Parameter importance analysis
+- Trial comparison and timeline
+- Auto-refresh every 30 seconds
 
 ## Emergency Stops
 

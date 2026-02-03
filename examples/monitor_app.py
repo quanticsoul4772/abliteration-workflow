@@ -2,8 +2,11 @@
 
 A Gradio-based web dashboard that provides:
 - Real-time trial progress visualization
+- Time estimates (elapsed, ETA, avg per trial)
+- Model and GPU context display
 - Interactive Plotly charts (optimization history, Pareto front, etc.)
 - Trial comparison and parameter exploration
+- Convergence indicators
 - Auto-refresh every 30 seconds
 
 Usage:
@@ -11,12 +14,16 @@ Usage:
     python examples/monitor_app.py --storage sqlite:///my.db    # Custom storage
     python examples/monitor_app.py --study qwen32b-v2           # Specific study
     python examples/monitor_app.py --refresh 60                 # 60s refresh interval
+    python examples/monitor_app.py --target-trials 300          # Custom trial target
+    python examples/monitor_app.py --model "Moonlight-16B"      # Show model name
+    python examples/monitor_app.py --gpu "H200 141GB"           # Show GPU info
 """
 
 import argparse
 import logging
 import sys
 import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 try:
@@ -54,6 +61,9 @@ STORAGE_URL: str = "sqlite:///heretic_study.db"
 STUDY_NAME: str = "heretic_study"
 REFRESH_INTERVAL: int = 30
 TARGET_TRIALS: int = 200  # Default target for progress bar
+TOTAL_PROMPTS: int = 104  # Total prompts for refusal counting
+MODEL_NAME: str = ""  # Model being abliterated
+GPU_INFO: str = ""  # GPU info (e.g., "H200 141GB")
 
 # Custom CSS for professional styling
 CUSTOM_CSS = """
@@ -67,31 +77,36 @@ CUSTOM_CSS = """
     --mono-font: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
 }
 
-/* Header styling */
+/* Header styling - compact */
 .dashboard-header {
     background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
     color: white;
-    padding: 20px 24px;
-    border-radius: 12px;
-    margin-bottom: 16px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 .dashboard-header h1 {
     margin: 0;
-    font-size: 1.5em;
+    font-size: 1.2em;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .dashboard-header .study-name {
     background: rgba(255,255,255,0.2);
-    padding: 4px 12px;
-    border-radius: 16px;
-    font-size: 0.9em;
-    margin-left: 12px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.8em;
 }
 .dashboard-header .subtitle {
-    margin: 4px 0 0 0;
-    opacity: 0.85;
-    font-size: 0.9em;
+    display: none;
 }
 
 /* Loading overlay */
@@ -130,35 +145,47 @@ CUSTOM_CSS = """
     to { transform: rotate(360deg); }
 }
 
-/* Metric cards */
+/* Metric cards - compact horizontal */
 .metric-card {
     background: white;
     border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    padding: 16px;
+    border-radius: 6px;
+    padding: 8px 12px;
     text-align: center;
-    transition: box-shadow 0.2s, transform 0.2s;
+    transition: box-shadow 0.2s;
+    min-width: 80px;
 }
 .metric-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 .metric-value {
-    font-size: 1.8em;
+    font-size: 1.3em;
     font-weight: 700;
     font-family: var(--mono-font);
-    margin: 4px 0;
+    margin: 2px 0;
+    line-height: 1.2;
 }
 .metric-label {
-    font-size: 0.85em;
-    color: #6b7280;
+    font-size: 0.7em;
+    color: #111827 !important;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    font-weight: 700;
 }
 .metric-sublabel {
-    font-size: 0.75em;
-    color: #9ca3af;
-    margin-top: 2px;
+    font-size: 0.65em;
+    color: #374151 !important;
+    margin-top: 1px;
+    font-weight: 500;
+}
+
+/* Metrics row - horizontal bar */
+.metrics-row {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+    flex-wrap: wrap;
+    justify-content: space-between;
 }
 
 /* Color semantics: green = good/low, amber = moderate, red = bad/high */
@@ -167,22 +194,22 @@ CUSTOM_CSS = """
 .color-bad { color: #dc2626; }  /* Red - high values are bad */
 .color-neutral { color: #2563eb; }  /* Blue - neutral info */
 
-/* Status badges */
+/* Status badges - compact */
 .status-running {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     color: #059669;
     background: #d1fae5;
-    padding: 6px 14px;
-    border-radius: 16px;
+    padding: 3px 10px;
+    border-radius: 12px;
     font-weight: 600;
-    font-size: 0.95em;
+    font-size: 0.8em;
 }
 .status-running::before {
     content: '';
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     background: #059669;
     border-radius: 50%;
     animation: pulse 2s infinite;
@@ -190,24 +217,24 @@ CUSTOM_CSS = """
 .status-complete {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     color: #2563eb;
     background: #dbeafe;
-    padding: 6px 14px;
-    border-radius: 16px;
+    padding: 3px 10px;
+    border-radius: 12px;
     font-weight: 600;
-    font-size: 0.95em;
+    font-size: 0.8em;
 }
 .status-failed {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     color: #dc2626;
     background: #fee2e2;
-    padding: 6px 14px;
-    border-radius: 16px;
+    padding: 3px 10px;
+    border-radius: 12px;
     font-weight: 600;
-    font-size: 0.95em;
+    font-size: 0.8em;
 }
 
 @keyframes pulse {
@@ -215,45 +242,53 @@ CUSTOM_CSS = """
     50% { opacity: 0.5; }
 }
 
-/* Progress bar */
+/* Progress bar - compact full width */
 .progress-container {
     background: #f3f4f6;
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin: 12px 0;
+    border-radius: 6px;
+    padding: 6px 12px;
+    margin: 4px 0 8px 0;
 }
 .progress-bar {
     background: #e5e7eb;
-    border-radius: 4px;
-    height: 8px;
+    border-radius: 3px;
+    height: 6px;
     overflow: hidden;
 }
 .progress-fill {
     background: linear-gradient(90deg, #3b82f6, #2563eb);
     height: 100%;
-    border-radius: 4px;
+    border-radius: 3px;
     transition: width 0.5s ease;
 }
 .progress-text {
     display: flex;
     justify-content: space-between;
-    font-size: 0.85em;
-    color: #6b7280;
-    margin-top: 6px;
+    font-size: 0.75em;
+    color: #111827 !important;
+    margin-top: 4px;
     font-family: var(--mono-font);
+    font-weight: 600;
+}
+.progress-text span {
+    color: #111827 !important;
 }
 
-/* Auto-refresh indicator */
+/* Auto-refresh indicator - compact */
 .refresh-indicator {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.85em;
-    color: #6b7280;
-    padding: 8px 12px;
-    background: #f9fafb;
-    border-radius: 6px;
-    margin-top: 8px;
+    gap: 6px;
+    font-size: 0.7em;
+    color: #111827 !important;
+    padding: 4px 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    margin-top: 4px;
+    font-weight: 600;
+}
+.refresh-indicator span {
+    color: #111827 !important;
 }
 .refresh-dot {
     width: 8px;
@@ -267,22 +302,96 @@ CUSTOM_CSS = """
     animation: none;
 }
 
-/* Best trial card */
+/* Best trial card - compact inline */
 .best-trial-card {
     background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
     border: 1px solid #86efac;
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-top: 12px;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: 6px;
 }
 .best-trial-card h4 {
-    margin: 0 0 8px 0;
-    color: #166534;
-    font-size: 0.9em;
+    margin: 0 0 4px 0;
+    color: #14532d !important;
+    font-size: 0.75em;
+    font-weight: 700;
 }
 .best-trial-values {
     font-family: var(--mono-font);
-    font-size: 0.95em;
+    font-size: 0.7em;
+    color: #14532d !important;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.best-trial-values div {
+    color: #14532d !important;
+    white-space: nowrap;
+}
+.best-trial-values strong {
+    color: #052e16 !important;
+    font-weight: 700;
+}
+
+/* Time estimates - hidden, merged into metrics */
+.time-card {
+    display: none;
+}
+
+/* Convergence indicator - compact */
+.convergence-improving {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #059669;
+    background: #d1fae5;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 0.7em;
+}
+.convergence-plateauing {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #d97706;
+    background: #fef3c7;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 0.7em;
+}
+.convergence-converged {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #2563eb;
+    background: #dbeafe;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 0.7em;
+}
+
+/* Model info in header - inline */
+.model-info {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    flex-wrap: wrap;
+}
+.model-badge {
+    background: rgba(255,255,255,0.15);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75em;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.model-badge .icon {
+    opacity: 0.8;
+    font-size: 0.9em;
 }
 
 /* Tab styling */
@@ -342,6 +451,23 @@ CUSTOM_CSS = """
 """
 
 
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds to a human-readable string."""
+    if seconds < 0:
+        return "N/A"
+    td = timedelta(seconds=int(seconds))
+    hours, remainder = divmod(td.seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if td.days > 0:
+        return f"{td.days}d {hours}h {minutes}m"
+    elif hours > 0:
+        return f"{hours}h {minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m {secs}s"
+    else:
+        return f"{secs}s"
+
+
 class StudyMonitor:
     """Monitors an Optuna study and provides visualization data."""
 
@@ -395,9 +521,15 @@ class StudyMonitor:
                 "failed_trials": 0,
                 "best_kl": "N/A",
                 "best_refusals": "N/A",
+                "best_refusals_pct": "N/A",
                 "best_params": {},
                 "progress_pct": 0,
                 "is_multi_objective": False,
+                "elapsed": "N/A",
+                "eta": "N/A",
+                "avg_trial_time": "N/A",
+                "convergence": "starting",
+                "convergence_class": "",
             }
 
         completed = [
@@ -428,6 +560,8 @@ class StudyMonitor:
         # Get best trial info with proper formatting
         best_kl = "N/A"
         best_refusals = "N/A"
+        best_refusals_pct = "N/A"
+        best_refusals_raw = None
         best_params = {}
         is_multi_objective = len(study.directions) > 1
 
@@ -444,17 +578,115 @@ class StudyMonitor:
                             key=lambda t: t.values[1] if t.values else float("inf"),
                         )
                         best_kl = f"{best_trial.values[0]:.3f}"
-                        best_refusals = f"{int(best_trial.values[1])}/100"
+                        
+                        # Handle refusals - could be stored as rate (0-1) or count
+                        refusals_value = best_trial.values[1]
+                        if refusals_value <= 1.0:  # Stored as rate (0-1)
+                            best_refusals_pct = f"{refusals_value * 100:.1f}%"
+                            best_refusals_raw = int(refusals_value * TOTAL_PROMPTS)
+                            best_refusals = f"{best_refusals_raw}/{TOTAL_PROMPTS}"
+                        else:  # Stored as count
+                            best_refusals_raw = int(refusals_value)
+                            best_refusals = f"{best_refusals_raw}/{TOTAL_PROMPTS}"
+                            best_refusals_pct = f"{(best_refusals_raw / TOTAL_PROMPTS) * 100:.1f}%"
                         best_params = best_trial.params
                 else:
                     best_trial = study.best_trial
                     best_kl = f"{best_trial.value:.4f}"
                     best_params = best_trial.params
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Error getting best trial: {e}")
                 pass
 
         # Calculate progress percentage
         progress_pct = min(100, (len(completed) / TARGET_TRIALS) * 100)
+
+        # Calculate time estimates
+        elapsed = "N/A"
+        eta = "N/A"
+        avg_trial_time = "N/A"
+        
+        if len(completed) >= 2:
+            try:
+                # Get timestamps from completed trials
+                start_times = [t.datetime_start for t in completed if t.datetime_start]
+                complete_times = [t.datetime_complete for t in completed if t.datetime_complete]
+                
+                if start_times and complete_times:
+                    first_start = min(start_times)
+                    last_complete = max(complete_times)
+                    elapsed_td = last_complete - first_start
+                    elapsed_secs = elapsed_td.total_seconds()
+                    elapsed = format_duration(elapsed_secs)
+                    
+                    # Average time per trial
+                    avg_secs = elapsed_secs / len(completed)
+                    avg_trial_time = f"{avg_secs:.1f}s"
+                    
+                    # ETA for remaining trials
+                    remaining_trials = TARGET_TRIALS - len(completed)
+                    if remaining_trials > 0:
+                        eta_secs = avg_secs * remaining_trials
+                        eta = format_duration(eta_secs)
+                    else:
+                        eta = "Complete"
+            except Exception:
+                pass
+
+        # Calculate convergence indicator
+        # Logic: 
+        # - "Improving" = refusals dropping significantly over trials
+        # - "Exploring" = refusals still high (>50%), optimization searching
+        # - "Plateauing" = refusals low but not improving much
+        # - "Converged" = refusals low (<20%) AND stable
+        convergence = "starting"
+        convergence_class = ""
+        
+        if len(completed) >= 20:
+            try:
+                sorted_trials = sorted(completed, key=lambda t: t.number)
+                early_trials = sorted_trials[:10]
+                recent_trials = sorted_trials[-10:]
+                
+                if is_multi_objective:
+                    # Get best refusals from each group
+                    early_best = min(t.values[1] for t in early_trials if t.values and len(t.values) > 1)
+                    recent_best = min(t.values[1] for t in recent_trials if t.values and len(t.values) > 1)
+                    
+                    # Normalize to percentage (0-100)
+                    if early_best <= 1.0:  # Rate format (0-1)
+                        early_pct = early_best * 100
+                        recent_pct = recent_best * 100
+                    else:  # Count format
+                        early_pct = (early_best / TOTAL_PROMPTS) * 100
+                        recent_pct = (recent_best / TOTAL_PROMPTS) * 100
+                    
+                    improvement = early_pct - recent_pct  # Positive = getting better
+                    
+                    # Decision logic based on ABSOLUTE refusal rate + improvement
+                    if recent_pct > 50:  # Still refusing most prompts
+                        if improvement > 5:
+                            convergence = "Improving"
+                            convergence_class = "convergence-improving"
+                        else:
+                            convergence = "Exploring"  # Still searching for good params
+                            convergence_class = "convergence-plateauing"  # Yellow - not good yet
+                    elif recent_pct > 20:  # Moderate refusals
+                        if improvement > 3:
+                            convergence = "Improving"
+                            convergence_class = "convergence-improving"
+                        else:
+                            convergence = "Plateauing"
+                            convergence_class = "convergence-plateauing"
+                    else:  # Low refusals (<20%) - this is success territory
+                        if improvement > 2:
+                            convergence = "Improving"
+                            convergence_class = "convergence-improving"
+                        else:
+                            convergence = "Converged"
+                            convergence_class = "convergence-converged"
+            except Exception:
+                pass
 
         return {
             "status": status,
@@ -465,10 +697,16 @@ class StudyMonitor:
             "failed_trials": len(failed),
             "best_kl": best_kl,
             "best_refusals": best_refusals,
+            "best_refusals_pct": best_refusals_pct,
             "best_params": best_params,
             "progress_pct": progress_pct,
             "is_multi_objective": is_multi_objective,
             "last_refresh": time.strftime("%H:%M:%S"),
+            "elapsed": elapsed,
+            "eta": eta,
+            "avg_trial_time": avg_trial_time,
+            "convergence": convergence,
+            "convergence_class": convergence_class,
         }
 
 
@@ -662,7 +900,13 @@ def get_parallel_coordinate(study: Optional[optuna.Study] = None) -> go.Figure:
 
 
 def get_timeline(study: Optional[optuna.Study] = None) -> go.Figure:
-    """Generate trial timeline plot.
+    """Generate performance over time chart showing KL and refusals improvement.
+
+    Shows:
+    - Individual trial KL values (scatter)
+    - Individual trial refusal rates (scatter)
+    - Running best KL line (shows improvement trajectory)
+    - Running best refusals line (shows improvement trajectory)
 
     Args:
         study: Optional pre-loaded study to avoid redundant DB calls.
@@ -678,28 +922,153 @@ def get_timeline(study: Optional[optuna.Study] = None) -> go.Figure:
     if len(completed) < 2:
         return create_empty_figure(f"Need at least 2 trials (have {len(completed)})")
 
+    is_multi_objective = len(study.directions) > 1
+    if not is_multi_objective:
+        # Fall back to default timeline for single-objective
+        try:
+            fig = plot_timeline(study)
+            fig.update_layout(
+                title="Trial Timeline",
+                template="plotly_white",
+            )
+            return fig
+        except Exception as e:
+            logger.error(f"Error generating timeline: {e}")
+            return create_empty_figure(f"Error: {e}")
+
     try:
-        fig = plot_timeline(study)
-        fig.update_layout(
-            title="Trial Timeline",
-            template="plotly_white",
+        # Sort trials by number
+        sorted_trials = sorted(completed, key=lambda t: t.number)
+        
+        trial_numbers = []
+        kl_values = []
+        refusal_values = []
+        
+        for t in sorted_trials:
+            if t.values and len(t.values) >= 2:
+                trial_numbers.append(t.number)
+                kl_values.append(t.values[0])
+                # Normalize refusals to percentage
+                ref_val = t.values[1]
+                if ref_val <= 1.0:  # Rate format (0-1)
+                    refusal_values.append(ref_val * 100)
+                else:  # Count format
+                    refusal_values.append((ref_val / TOTAL_PROMPTS) * 100)
+        
+        if len(trial_numbers) < 2:
+            return create_empty_figure("Not enough valid trials")
+        
+        # Calculate running best (minimum so far)
+        running_best_kl = []
+        running_best_refusals = []
+        best_kl_so_far = float('inf')
+        best_ref_so_far = float('inf')
+        
+        for kl, ref in zip(kl_values, refusal_values):
+            best_kl_so_far = min(best_kl_so_far, kl)
+            best_ref_so_far = min(best_ref_so_far, ref)
+            running_best_kl.append(best_kl_so_far)
+            running_best_refusals.append(best_ref_so_far)
+        
+        # Create figure with secondary y-axis
+        from plotly.subplots import make_subplots
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        # Individual KL values (scatter, left y-axis)
+        fig.add_trace(
+            go.Scatter(
+                x=trial_numbers,
+                y=kl_values,
+                mode='markers',
+                name='KL Divergence',
+                marker=dict(color='#7c3aed', size=6, opacity=0.4),
+                hovertemplate='Trial %{x}<br>KL: %{y:.3f}<extra></extra>',
+            ),
+            secondary_y=False,
         )
+        
+        # Running best KL line (left y-axis)
+        fig.add_trace(
+            go.Scatter(
+                x=trial_numbers,
+                y=running_best_kl,
+                mode='lines',
+                name='Best KL',
+                line=dict(color='#7c3aed', width=3),
+                hovertemplate='Trial %{x}<br>Best KL: %{y:.3f}<extra></extra>',
+            ),
+            secondary_y=False,
+        )
+        
+        # Individual refusal values (scatter, right y-axis)
+        fig.add_trace(
+            go.Scatter(
+                x=trial_numbers,
+                y=refusal_values,
+                mode='markers',
+                name='Refusal %',
+                marker=dict(color='#dc2626', size=6, opacity=0.4),
+                hovertemplate='Trial %{x}<br>Refusals: %{y:.1f}%<extra></extra>',
+            ),
+            secondary_y=True,
+        )
+        
+        # Running best refusals line (right y-axis)
+        fig.add_trace(
+            go.Scatter(
+                x=trial_numbers,
+                y=running_best_refusals,
+                mode='lines',
+                name='Best Refusal %',
+                line=dict(color='#dc2626', width=3),
+                hovertemplate='Trial %{x}<br>Best Refusals: %{y:.1f}%<extra></extra>',
+            ),
+            secondary_y=True,
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title="Performance Over Time",
+            template="plotly_white",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            hovermode='x unified',
+        )
+        
+        # Update axes
+        fig.update_xaxes(title_text="Trial Number")
+        fig.update_yaxes(title_text="KL Divergence", secondary_y=False, color='#7c3aed')
+        fig.update_yaxes(title_text="Refusal Rate (%)", secondary_y=True, color='#dc2626')
+        
         return fig
     except Exception as e:
-        logger.error(f"Error generating timeline: {e}")
+        logger.error(f"Error generating performance timeline: {e}")
         return create_empty_figure(f"Error: {e}")
 
 
 def get_header_html() -> str:
-    """Generate the dashboard header with study name."""
+    """Generate the dashboard header with study name, model, and GPU info."""
+    model_badge = ""
+    gpu_badge = ""
+    
+    if MODEL_NAME:
+        model_badge = f'<span class="model-badge">{MODEL_NAME}</span>'
+    if GPU_INFO:
+        gpu_badge = f'<span class="model-badge">{GPU_INFO}</span>'
+    
+    model_info = ""
+    if model_badge or gpu_badge:
+        model_info = f'<div class="model-info">{model_badge}{gpu_badge}</div>'
+    
     return f"""
     <div class="dashboard-header">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <h1>Bruno Monitor <span class="study-name">{STUDY_NAME}</span></h1>
-                <p class="subtitle">Real-time Abliteration Progress Dashboard</p>
-            </div>
-        </div>
+        <h1>Bruno Monitor <span class="study-name">{STUDY_NAME}</span></h1>
+        {model_info}
     </div>
     """
 
@@ -744,34 +1113,81 @@ def get_progress_html(stats: Optional[dict] = None) -> str:
 
 
 def get_metrics_html() -> str:
-    """Get metric cards HTML."""
+    """Get metric cards HTML - horizontal row."""
+    m = get_monitor()
+    stats = m.get_summary_stats()
+    
+    # Convergence badge
+    convergence_html = ""
+    if stats["convergence"] and stats["convergence"] != "starting":
+        convergence_html = f'<span class="{stats["convergence_class"]}">{stats["convergence"]}</span>'
+
+    return f"""
+    <div class="metrics-row">
+        <div class="metric-card">
+            <div class="metric-label">Trials</div>
+            <div class="metric-value" style="color: #2563eb;">{stats["completed_trials"]}/{TARGET_TRIALS}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">ETA</div>
+            <div class="metric-value" style="color: #059669;">{stats["eta"]}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Elapsed</div>
+            <div class="metric-value" style="color: #6366f1;">{stats["elapsed"]}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Best KL</div>
+            <div class="metric-value" style="color: #7c3aed;">{stats["best_kl"]}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Best Refusals</div>
+            <div class="metric-value" style="color: #dc2626;">{stats["best_refusals"]}</div>
+            <div class="metric-sublabel">{stats["best_refusals_pct"]}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Per Trial</div>
+            <div class="metric-value" style="color: #0891b2;">{stats["avg_trial_time"]}</div>
+        </div>
+        <div class="metric-card" style="display: flex; align-items: center; justify-content: center;">
+            {convergence_html}
+        </div>
+    </div>
+    """
+
+
+def get_time_estimates_html() -> str:
+    """Get time estimates card HTML."""
     m = get_monitor()
     stats = m.get_summary_stats()
 
     return f"""
-    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 12px 0;">
-        <div class="metric-card">
-            <div class="metric-label">Completed</div>
-            <div class="metric-value" style="color: #2563eb;">{stats["completed_trials"]}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Running</div>
-            <div class="metric-value" style="color: #059669;">{stats["running_trials"]}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Best KL</div>
-            <div class="metric-value" style="color: #7c3aed; font-size: 1.4em;">{stats["best_kl"]}</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-label">Best Refusals</div>
-            <div class="metric-value" style="color: #dc2626; font-size: 1.4em;">{stats["best_refusals"]}</div>
+    <div class="time-card">
+        <h4>Time Estimates</h4>
+        <div class="time-values">
+            <div>
+                <div class="label">Elapsed</div>
+                <div class="value">{stats["elapsed"]}</div>
+            </div>
+            <div>
+                <div class="label">Remaining</div>
+                <div class="value">{stats["eta"]}</div>
+            </div>
+            <div>
+                <div class="label">Per Trial</div>
+                <div class="value">{stats["avg_trial_time"]}</div>
+            </div>
+            <div>
+                <div class="label">Failed</div>
+                <div class="value">{stats["failed_trials"]}</div>
+            </div>
         </div>
     </div>
     """
 
 
 def get_best_params_html() -> str:
-    """Get best parameters HTML."""
+    """Get best parameters HTML - compact inline."""
     m = get_monitor()
     stats = m.get_summary_stats()
 
@@ -779,16 +1195,16 @@ def get_best_params_html() -> str:
         return ""
 
     params_html = ""
-    for k, v in list(stats["best_params"].items())[:4]:  # Show top 4 params
+    for k, v in list(stats["best_params"].items())[:6]:  # Show top 6 params inline
         short_name = k.split(".")[-1]
         if isinstance(v, float):
-            params_html += f"<div><strong>{short_name}:</strong> {v:.3f}</div>"
+            params_html += f"<div><strong>{short_name}:</strong> {v:.2f}</div>"
         else:
             params_html += f"<div><strong>{short_name}:</strong> {v}</div>"
 
     return f"""
     <div class="best-trial-card">
-        <h4>Best Trial Parameters</h4>
+        <h4>Best Parameters</h4>
         <div class="best-trial-values">{params_html}</div>
     </div>
     """
@@ -830,10 +1246,21 @@ def get_trials_table(study: Optional[optuna.Study] = None) -> list[list]:
     for trial in reversed(study.trials[-50:]):  # Last 50 trials, newest first
         state = trial.state.name
 
-        # Format values more clearly - don't hardcode /100
+        # Format values - show refusals as count and percentage
         if trial.values and is_multi_objective:
             kl = f"{trial.values[0]:.3f}"
-            refusals = str(int(trial.values[1])) if len(trial.values) > 1 else "N/A"
+            if len(trial.values) > 1:
+                refusals_value = trial.values[1]
+                # Handle refusals - could be stored as rate (0-1) or count
+                if refusals_value <= 1.0:  # Stored as rate (0-1)
+                    refusal_pct = refusals_value * 100
+                    refusal_count = int(refusals_value * TOTAL_PROMPTS)
+                else:  # Stored as count
+                    refusal_count = int(refusals_value)
+                    refusal_pct = (refusal_count / TOTAL_PROMPTS) * 100
+                refusals = f"{refusal_count} ({refusal_pct:.0f}%)"
+            else:
+                refusals = "N/A"
         elif trial.value is not None:
             kl = f"{trial.value:.4f}"
             refusals = "N/A"
@@ -863,10 +1290,11 @@ def refresh_all():
 
     return (
         get_header_html(),
-        get_status_html(),
-        get_progress_html(),
         get_metrics_html(),
+        get_progress_html(),
+        get_status_html(),
         get_best_params_html(),
+        "",  # time_estimates_html - hidden
         get_refresh_indicator_html(True),
         get_optimization_history(study),
         get_pareto_front(study),
@@ -939,34 +1367,37 @@ def create_ui() -> gr.Blocks:
         # Auto-refresh timer (Gradio 6.x compatible)
         timer = gr.Timer(value=REFRESH_INTERVAL, active=True)
 
-        # Header with study name
+        # Compact header
         header_html = gr.HTML(get_header_html())
 
+        # Full-width metrics row at top
+        metrics_html = gr.HTML(get_metrics_html())
+
+        # Full-width progress bar
+        progress_html = gr.HTML(get_progress_html())
+
         with gr.Row():
-            # Left sidebar - Summary (wider for better readability)
-            with gr.Column(scale=1, min_width=320):
-                # Status badge (no redundant "### Status" label)
+            # Left sidebar - narrow, just controls and best params
+            with gr.Column(scale=1, min_width=200):
+                # Status badge
                 status_html = gr.HTML(get_status_html())
 
-                # Progress bar
-                progress_html = gr.HTML(get_progress_html())
-
-                # Metric cards
-                metrics_html = gr.HTML(get_metrics_html())
-
-                # Best parameters
+                # Best parameters (compact)
                 best_params_html = gr.HTML(get_best_params_html())
 
-                # Refresh controls
+                # Time estimates - hidden, info merged into metrics
+                time_estimates_html = gr.HTML("")
+
+                # Refresh controls - compact
                 with gr.Row():
                     refresh_btn = gr.Button(
-                        "Refresh Now",
+                        "Refresh",
                         variant="primary",
                         scale=2,
                         size="sm",
                     )
                     auto_refresh_toggle = gr.Checkbox(
-                        label="Auto-refresh",
+                        label="Auto",
                         value=True,
                         scale=1,
                     )
@@ -974,21 +1405,21 @@ def create_ui() -> gr.Blocks:
                 # Auto-refresh indicator
                 refresh_indicator_html = gr.HTML(get_refresh_indicator_html(True))
 
-                # Study selection (collapsed by default)
-                with gr.Accordion("Change Study", open=False):
+                # Study selection (collapsed)
+                with gr.Accordion("Study", open=False):
                     gr.Markdown(list_available_studies())
                     study_name_input = gr.Textbox(
                         label="Study Name",
                         value=STUDY_NAME,
-                        placeholder="Enter study name",
+                        placeholder="Study name",
                         show_label=False,
                     )
                     change_study_btn = gr.Button(
-                        "Load Study", size="sm", variant="secondary"
+                        "Load", size="sm", variant="secondary"
                     )
 
-            # Main content - Plots
-            with gr.Column(scale=3):
+            # Main content - Plots (larger)
+            with gr.Column(scale=4):
                 with gr.Tabs():
                     with gr.TabItem("Progress", id="progress"):
                         history_plot = gr.Plot(
@@ -996,7 +1427,7 @@ def create_ui() -> gr.Blocks:
                             value=get_optimization_history(),
                         )
 
-                    with gr.TabItem("Pareto Front", id="pareto"):
+                    with gr.TabItem("Pareto", id="pareto"):
                         pareto_plot = gr.Plot(
                             label="Pareto Front",
                             value=get_pareto_front(),
@@ -1008,26 +1439,26 @@ def create_ui() -> gr.Blocks:
                             value=get_param_importances(),
                         )
 
-                    with gr.TabItem("Parameters", id="params"):
+                    with gr.TabItem("Params", id="params"):
                         parallel_plot = gr.Plot(
                             label="Parallel Coordinate",
                             value=get_parallel_coordinate(),
                         )
 
-                    with gr.TabItem("Timeline", id="timeline"):
+                    with gr.TabItem("Performance", id="timeline"):
                         timeline_plot = gr.Plot(
-                            label="Trial Timeline",
+                            label="Performance Over Time",
                             value=get_timeline(),
                         )
 
                     with gr.TabItem("Trials", id="trials"):
                         trials_table = gr.Dataframe(
                             headers=[
-                                "Trial",
+                                "#",
                                 "State",
-                                "KL Div",
+                                "KL",
                                 "Refusals",
-                                "Key Parameters",
+                                "Params",
                             ],
                             value=get_trials_table(),
                             wrap=True,
@@ -1037,10 +1468,11 @@ def create_ui() -> gr.Blocks:
         # All outputs for refresh
         all_outputs = [
             header_html,
-            status_html,
-            progress_html,
             metrics_html,
+            progress_html,
+            status_html,
             best_params_html,
+            time_estimates_html,
             refresh_indicator_html,
             history_plot,
             pareto_plot,
@@ -1080,7 +1512,7 @@ def create_ui() -> gr.Blocks:
 
 def main() -> None:
     """Main entry point."""
-    global STORAGE_URL, STUDY_NAME, REFRESH_INTERVAL, monitor
+    global STORAGE_URL, STUDY_NAME, REFRESH_INTERVAL, TARGET_TRIALS, TOTAL_PROMPTS, MODEL_NAME, GPU_INFO, monitor
 
     parser = argparse.ArgumentParser(
         description="Bruno Monitor - Real-time abliteration visualization dashboard",
@@ -1116,12 +1548,41 @@ def main() -> None:
         action="store_true",
         help="Create a public Gradio link",
     )
+    parser.add_argument(
+        "--target-trials",
+        "-t",
+        type=int,
+        default=200,
+        help="Target number of trials for progress bar (default: 200)",
+    )
+    parser.add_argument(
+        "--total-prompts",
+        type=int,
+        default=104,
+        help="Total prompts for refusal calculation (default: 104)",
+    )
+    parser.add_argument(
+        "--model",
+        "-m",
+        default="",
+        help="Model name to display in header (e.g., 'Moonlight-16B-A3B-Instruct')",
+    )
+    parser.add_argument(
+        "--gpu",
+        "-g",
+        default="",
+        help="GPU info to display in header (e.g., 'H200 141GB')",
+    )
 
     args = parser.parse_args()
 
     STORAGE_URL = args.storage
     STUDY_NAME = args.study
     REFRESH_INTERVAL = args.refresh
+    TARGET_TRIALS = args.target_trials
+    TOTAL_PROMPTS = args.total_prompts
+    MODEL_NAME = args.model
+    GPU_INFO = args.gpu
 
     # Initialize monitor
     monitor = StudyMonitor(STORAGE_URL, STUDY_NAME)
@@ -1130,6 +1591,12 @@ def main() -> None:
     logger.info(f"Storage: {STORAGE_URL}")
     logger.info(f"Study: {STUDY_NAME}")
     logger.info(f"Refresh interval: {REFRESH_INTERVAL}s")
+    logger.info(f"Target trials: {TARGET_TRIALS}")
+    logger.info(f"Total prompts: {TOTAL_PROMPTS}")
+    if MODEL_NAME:
+        logger.info(f"Model: {MODEL_NAME}")
+    if GPU_INFO:
+        logger.info(f"GPU: {GPU_INFO}")
 
     # Check if study exists
     if monitor.load_study() is None:

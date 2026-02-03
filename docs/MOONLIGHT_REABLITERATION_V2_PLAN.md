@@ -643,34 +643,34 @@ uv run bruno-vast stop
 ## ✅ EXECUTION CHECKLIST
 
 ```
-□ Pre-flight: Read entire plan
-□ Pre-flight: Verify config.moonlight.toml has MPOA enabled (use_mpoa = true)
-□ Pre-flight: Verify MPOA scale settings (mpoa_min_scale = 0.5, mpoa_max_scale = 2.0)
-□ Pre-flight: Check .env encoding is UTF-8
-□ Pre-flight: Understand DPO is BLOCKED (MoE gate assertion)
+✅ Pre-flight: Read entire plan
+✅ Pre-flight: Verify config.moonlight.toml has MPOA enabled (use_mpoa = true)
+✅ Pre-flight: Verify MPOA scale settings (mpoa_min_scale = 0.5, mpoa_max_scale = 2.0)
+✅ Pre-flight: Check .env encoding is UTF-8
+✅ Pre-flight: Understand DPO is BLOCKED (MoE gate assertion)
 
-□ Phase 1: Build wheel locally
-□ Phase 1: Verify MPOA in wheel (unzip -l dist/*.whl | grep model.py)
-□ Phase 1: Instance running or created
-□ Phase 1: Bruno installed with transformers 4.51.0
-□ Phase 1: Previous cache cleared
+✅ Phase 1: Build wheel locally
+✅ Phase 1: Verify MPOA in wheel (unzip -l dist/*.whl | grep model.py)
+✅ Phase 1: Instance running or created (H200 141GB)
+✅ Phase 1: Bruno installed with transformers 4.51.0
+✅ Phase 1: Previous cache cleared
 
-□ Phase 2: Config uploaded to /workspace/config.toml
-□ Phase 2: Config verified (ALL settings including mpoa_min/max_scale)
-□ Phase 2: HF_TOKEN set in environment
+✅ Phase 2: Config uploaded to /workspace/config.toml
+✅ Phase 2: Config verified (ALL settings including mpoa_min/max_scale)
+✅ Phase 2: HF_TOKEN set in environment
 
-□ Phase 3: 2-trial test config created
-□ Phase 3: Test started in tmux
-□ Phase 3: Test completed successfully
-□ Phase 3: MPOA message visible in logs
-□ Phase 3: No errors or crashes
+✅ Phase 3: 2-trial test config created
+✅ Phase 3: Test started in tmux
+✅ Phase 3: Test completed successfully (KL=0.20, Refusals=95/104)
+✅ Phase 3: MPOA message visible in logs
+✅ Phase 3: No errors or crashes
 
-□ Phase 4: Full config restored (n_trials = 300)
-□ Phase 4: ✋ USER CONFIRMED → Full run started
-□ Phase 4: Running in tmux (survives disconnection)
-□ Phase 4: Progress being monitored
+✅ Phase 4: Full config restored (n_trials = 300)
+✅ Phase 4: ✋ USER CONFIRMED → Full run started
+✅ Phase 4: Running in tmux (survives disconnection)
+✅ Phase 4: Progress being monitored via Gradio dashboard
 
-□ Phase 5: Training complete (300 trials)
+□ Phase 5: Training complete (300 trials) - IN PROGRESS ~77/300
 □ Phase 5: Model saved
 □ Phase 5: KL divergence < 2.0 confirmed
 □ Phase 5: Refusal rate < 15% confirmed
@@ -732,6 +732,41 @@ The package is named `bruno-ai` (not `bruno_llm` or `heretic_llm`):
 
 ---
 
-*Last Updated: February 2026*
+*Last Updated: February 3, 2026*
 *Bruno Version: 2.0.0+ with MPOA*
-*Plan Version: v2.1 (config-file-only approach)*
+*Plan Version: v2.2 (config-file-only approach)*
+
+---
+
+## 📊 EXECUTION LOG (February 3, 2026)
+
+### Phase 3 Results (2-Trial Test)
+- **Status:** ✅ PASSED
+- **KL Divergence:** 0.20 (excellent, target was <2.0)
+- **Refusals:** 95/104 (91.3%)
+- **Model Saved:** `/workspace/models/Moonlight-16B-A3B-Instruct-abliterated-v2`
+- **Bug Fixed:** Tensor size mismatch in `get_logprobs_batched` when `n_tokens > 1`
+
+### Phase 4 Status (300-Trial Production Run)
+- **Status:** 🔄 IN PROGRESS
+- **Started:** 02:52 UTC, February 3, 2026
+- **Current Trial:** ~77/300 (as of 05:03 UTC)
+- **Elapsed Time:** ~2 hours
+- **ETA:** ~6 hours remaining
+- **Database:** `/workspace/moonlight_reabliteration.db`
+- **Monitoring:** Gradio dashboard at `examples/monitor_app.py`
+
+### Issues Encountered & Resolved
+1. **torchvision circular import** - Reinstalled torchvision
+2. **transformers version** - Downgraded from 5.0.0 to 4.51.0
+3. **Tensor size mismatch** - Fixed padding in `get_logprobs_batched` with `-100.0`
+4. **Wrong database for monitor** - Fixed to use `moonlight_reabliteration.db`
+
+### Gradio Monitor Dashboard
+```bash
+# Start monitor on instance
+cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///moonlight_reabliteration.db --study moonlight-v2-production --share --port 7860'
+
+# Get public URL from tmux output
+tmux capture-pane -t monitor -p | grep gradio.live
+```

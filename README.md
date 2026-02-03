@@ -51,8 +51,9 @@ The technique works for any behavior with distinguishable activation patterns:
 
 **Cloud GPU Tools:**
 - Dedicated `bruno-vast` CLI for Vast.ai management
-- GPU tier presets (RTX_4090, A6000, A100, H100)
+- GPU tier presets (RTX_4090, A6000, A100, H100, H200)
 - Live terminal dashboard with real-time monitoring
+- **Gradio web dashboard** for browser-based monitoring (`examples/monitor_app.py`)
 - Docker image for RunPod/Vast.ai deployment
 
 ## Installation
@@ -145,12 +146,44 @@ docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/bruno \
 --use-neural-refusal-detection    # Zero-shot NLI detection (default: true)
 --ensemble-probe-pca              # Supervised + PCA ensemble (default: true)
 --use-activation-calibration      # Adaptive scaling (default: true)
---use-concept-cones               # Category-specific ablation (default: false)
---use-caa                         # Contrastive Activation Addition (default: false)
+--use-concept-cones               # Category-specific ablation (default: false, experimental)
+--use-caa                         # Contrastive Activation Addition (default: false, experimental)
 --use-circuit-ablation            # Attention head targeting (default: false, no GQA)
 --use-warm-start-params           # Model family warm-start (default: true)
 --use-sacred-directions           # Preserve capabilities via MMLU directions (default: false)
+--use-mpoa                        # Multi-Prompt Orthogonal Ablation (default: true)
 ```
+
+**Configuration Verification:**
+```bash
+bruno show-config                 # Display effective settings and exit
+```
+
+### Configuration Priority
+
+Bruno uses a layered configuration system. Settings are resolved in this order (highest priority first):
+
+1. **CLI arguments** (e.g., `--use-mpoa true`) - Always wins
+2. **Environment variables** (e.g., `BRUNO_USE_MPOA=true`)
+3. **config.toml file** in current directory
+4. **Field defaults** in code
+
+**Important:** CLI arguments override TOML values, even when you don't explicitly set them. If a CLI argument has a default value, that default may override your TOML config.
+
+### Configuration Verification
+
+Bruno includes built-in configuration verification to prevent silent failures:
+
+```bash
+# Verify your effective configuration before a long run
+bruno show-config --model Qwen/Qwen2.5-7B-Instruct
+```
+
+**At startup, Bruno will:**
+- Log whether `config.toml` was found in the current directory
+- Warn if TOML values may not have been loaded correctly
+- Display enabled/disabled status for key features (MPOA, CAA, Concept Cones)
+- Log effective settings for debugging
 
 ### Configuration File
 
@@ -184,6 +217,13 @@ column = "text"
 ```
 
 See [configs/](configs/) for example configurations.
+
+**Note:** When running with config.toml, Bruno will:
+- Warn you if config.toml is not found in the current directory
+- Warn if TOML values may have been overridden by CLI defaults
+- Display feature status (MPOA, CAA, Concept Cones enabled/disabled)
+
+Use `bruno show-config` to verify your effective settings before starting a long run.
 
 ## Model Size Guidelines
 
@@ -279,8 +319,18 @@ Bruno includes comprehensive error handling with:
 - Input validation and security hardening
 - Enhanced logging with file rotation
 - Network retry logic with exponential backoff
+- **Configuration verification** to prevent silent failures
 
 All errors provide clear guidance for resolution.
+
+### Silent Failure Prevention
+
+Bruno actively prevents common silent failures:
+- **Config file detection:** Warns if config.toml is not found
+- **TOML parsing verification:** Detects when TOML values weren't loaded
+- **Feature status logging:** Shows enabled/disabled status for MPOA, CAA, Concept Cones
+- **Early GQA detection:** Fails fast if circuit ablation is requested on incompatible models
+- **C4 error hints:** Provides clear fix instructions for common dataset errors
 
 ## Troubleshooting
 
@@ -325,6 +375,12 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
 - Single trial: ~3 min
 - 200 trials: ~10 hrs (total cost: ~$22)
 - **Best result achieved:** Trial 173 - 0 refusals, KL=0.26
+
+**H200 GPU (Moonlight-16B-A3B-Instruct v2 Run):**
+- Model: moonshotai/Moonlight-16B-A3B-Instruct (MoE architecture)
+- 300 trials: ~12-14 hrs (estimated cost: ~$24-28)
+- 2-trial test result: KL=0.20, Refusals=95/104
+- Full run in progress (February 2026)
 
 **4x RTX 4090 (Qwen2.5-Coder-32B):**
 - 200 trials: ~30-35 hrs (total cost: ~$47-55)

@@ -1276,6 +1276,17 @@ class Model:
                     raise
             return device_projectors_cache[device]
 
+        # Log which ablation mode is being used (prevents silent failure confusion)
+        if use_mpoa:
+            logger.info(
+                "Applying MPOA (Norm-Preserving Biprojected Abliteration)",
+                norm_mode=mpoa_norm_mode,
+                min_scale=mpoa_min_scale,
+                max_scale=mpoa_max_scale,
+            )
+        else:
+            logger.debug("Using standard ablation (MPOA disabled)")
+
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(num_layers):
@@ -1544,7 +1555,27 @@ class Model:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch, n_tokens=n_tokens))
+            batch_logprobs = self.get_logprobs(batch, n_tokens=n_tokens)
+            
+            # Handle variable-length generation when n_tokens > 1
+            # Some batches may generate fewer tokens due to EOS
+            if n_tokens > 1 and batch_logprobs.dim() == 3:
+                actual_tokens = batch_logprobs.shape[1]
+                if actual_tokens < n_tokens:
+                    # Pad with very negative log-prob (near-zero probability)
+                    # Using -100.0 instead of 0.0 since these are log probabilities
+                    padding = torch.full(
+                        (batch_logprobs.shape[0], n_tokens - actual_tokens, batch_logprobs.shape[2]),
+                        fill_value=-100.0,
+                        device=batch_logprobs.device,
+                        dtype=batch_logprobs.dtype,
+                    )
+                    batch_logprobs = torch.cat([batch_logprobs, padding], dim=1)
+                elif actual_tokens > n_tokens:
+                    # Truncate to expected n_tokens
+                    batch_logprobs = batch_logprobs[:, :n_tokens, :]
+            
+            logprobs.append(batch_logprobs)
 
         return torch.cat(logprobs, dim=0)
 
@@ -2365,6 +2396,16 @@ class Model:
         else:
             # If mean projection is near zero, refusal direction may be weak
             calibration_factor = 1.0
+            logger.warning(
+                "Activation calibration fallback triggered",
+                mean_projection=stats.mean_projection,
+                reason="Mean projection near zero, refusal direction may be weak",
+                calibration_factor=calibration_factor,
+            )
+            print(
+                f"[yellow]  * Warning: Weak refusal activation (mean={stats.mean_projection:.6f}), "
+                f"using calibration factor 1.0[/yellow]"
+            )
 
         # Clamp to reasonable range to prevent extreme values
         calibration_factor = max(min_factor, min(max_factor, calibration_factor))
@@ -2519,11 +2560,18 @@ class Model:
         """
         if not cone_result.cones:
             print("[yellow]Warning: No concept cones to abliterate.[/yellow]")
+            logger.warning("Concept cone ablation skipped: no cones extracted")
             return
 
         total_size = sum(cone.size for cone in cone_result.cones)
 
         print(f"  * Abliterating {len(cone_result.cones)} concept cones...")
+        logger.info(
+            "Applying concept cone ablation",
+            n_cones=len(cone_result.cones),
+            total_prompts=total_size,
+            use_mpoa=use_mpoa,
+        )
 
         for cone in cone_result.cones:
             # Weight by relative size of this cone
@@ -2726,6 +2774,14 @@ class Model:
         )
 
         print(f"  * CAA: Refusal-compliance cosine similarity: {cosine_sim:.3f}")
+        logger.info(
+            "Applying CAA (Contrastive Activation Addition)",
+            cosine_similarity=cosine_sim,
+            removal_strength=removal_strength,
+            addition_strength=addition_strength,
+            max_overlap=max_overlap,
+            use_mpoa=use_mpoa,
+        )
 
         caa_applied = True
         if abs(cosine_sim) > max_overlap:

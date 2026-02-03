@@ -104,6 +104,8 @@ class TestRunGPUDetection:
             mock_settings.return_value = settings
 
             mock_model = MagicMock()
+            # Mock is_gqa_model to return proper tuple for early GQA detection
+            mock_model.is_gqa_model.return_value = (False, 32, 32)
             mock_model_class.return_value = mock_model
 
             with patch("bruno.main.load_datasets") as mock_load_datasets:
@@ -139,6 +141,8 @@ class TestRunGPUDetection:
             mock_settings.return_value = settings
 
             mock_model = MagicMock()
+            # Mock is_gqa_model to return proper tuple for early GQA detection
+            mock_model.is_gqa_model.return_value = (False, 32, 32)
             mock_model_class.return_value = mock_model
 
             with patch("bruno.main.load_datasets") as mock_load_datasets:
@@ -185,6 +189,8 @@ class TestRunBatchSizeDetermination:
             mock_model = MagicMock()
             mock_model.get_responses.return_value = ["response"] * 8
             mock_model.tokenizer.encode.return_value = list(range(50))
+            # Mock is_gqa_model to return proper tuple for early GQA detection
+            mock_model.is_gqa_model.return_value = (False, 32, 32)
             mock_model_class.return_value = mock_model
 
             mock_datasets = MagicMock()

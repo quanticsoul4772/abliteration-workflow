@@ -524,8 +524,8 @@ class Settings(BaseSettings):
 
     # Phase 4 Next-Level Improvement: Concept Cones Clustering
     use_concept_cones: bool = Field(
-        default=True,
-        description="Enable concept cone extraction for adaptive ablation. Clusters harmful prompts by their residual patterns to extract category-specific refusal directions (e.g., violence vs. fraud vs. self-harm).",
+        default=False,
+        description="Enable concept cone extraction for adaptive ablation. Clusters harmful prompts by their residual patterns to extract category-specific refusal directions (e.g., violence vs. fraud vs. self-harm). Experimental feature - disabled by default.",
     )
 
     n_concept_cones: int = Field(
@@ -550,8 +550,8 @@ class Settings(BaseSettings):
 
     # Phase 5 Next-Level Improvement: Contrastive Activation Addition (CAA)
     use_caa: bool = Field(
-        default=True,
-        description="Use Contrastive Activation Addition alongside ablation. This removes the refusal direction AND adds a compliance direction for complementary effect.",
+        default=False,
+        description="Use Contrastive Activation Addition alongside ablation. This removes the refusal direction AND adds a compliance direction for complementary effect. Experimental feature - disabled by default.",
     )
 
     caa_addition_strength: float = Field(

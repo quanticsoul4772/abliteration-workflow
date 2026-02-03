@@ -61,6 +61,11 @@ from questionary import Choice, Style
 from rich.traceback import install
 
 from .config import Settings
+from .config_verify import (
+    log_config_status,
+    log_effective_settings,
+    verify_config_was_parsed,
+)
 from .constants import (
     MAX_OOM_RETRIES,
     LayerPos,
@@ -151,6 +156,17 @@ def run():
         )
         return
 
+    # Log configuration status and effective settings
+    config_found = log_config_status()
+    log_effective_settings(settings)
+
+    # Verify TOML was actually parsed (detect silent failures)
+    if config_found:
+        config_warnings = verify_config_was_parsed(settings)
+        for warning in config_warnings:
+            print(f"[yellow]Warning: {warning}[/yellow]")
+            logger.warning(f"Config verification warning: {warning}")
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         print(f"GPU type: [bold]{torch.cuda.get_device_name()}[/]")
@@ -192,6 +208,29 @@ def run():
     warnings.filterwarnings("ignore", category=ExperimentalWarning)
 
     model = Model(settings)
+
+    # Early GQA detection for circuit ablation
+    # Check immediately after model load to fail fast instead of after direction extraction
+    if settings.use_circuit_ablation:
+        is_gqa, n_heads, n_kv_heads = model.is_gqa_model()
+        if is_gqa:
+            print()
+            print("[red]Circuit ablation is NOT supported for GQA models![/red]")
+            print(
+                f"[yellow]Detected: n_heads={n_heads}, n_kv_heads={n_kv_heads}[/yellow]"
+            )
+            print(
+                "[yellow]GQA models include: Llama 3.x, Qwen2.5, Mistral, and others.[/yellow]"
+            )
+            print("[yellow]Solutions:[/yellow]")
+            print("  1. Disable circuit ablation: --use-circuit-ablation false")
+            print("  2. Use standard layer-level ablation (default)")
+            print("  3. Use a non-GQA model (e.g., older Llama 2 models)")
+            raise AbliterationError(
+                f"Circuit ablation is not supported for GQA models. "
+                f"Detected: n_heads={n_heads}, n_kv_heads={n_kv_heads}. "
+                f"Disable use_circuit_ablation to use standard layer-level ablation."
+            )
 
     # Phase 1: Load all datasets using phase module
     datasets = load_datasets(settings)
@@ -312,7 +351,24 @@ def run():
     refusal_directions = direction_result.refusal_directions
     refusal_directions_multi = direction_result.refusal_directions_multi
     use_multi_direction = direction_result.use_multi_direction
-    direction_weights = direction_result.direction_weights or settings.direction_weights
+
+    # Determine direction weights: use eigenvalue-computed weights only if enabled,
+    # otherwise always use user-specified weights
+    if (
+        settings.use_eigenvalue_weights
+        and direction_result.direction_weights is not None
+    ):
+        direction_weights = direction_result.direction_weights
+        logger.info(
+            "Using eigenvalue-computed direction weights",
+            weights=[f"{w:.3f}" for w in direction_weights],
+        )
+    else:
+        direction_weights = settings.direction_weights
+        logger.info(
+            "Using user-specified direction weights",
+            weights=[f"{w:.3f}" for w in direction_weights],
+        )
 
     # Convert layer profile configs to LayerRangeProfile objects (needed for some advanced features)
     layer_profiles: list[LayerRangeProfile] | None = None
@@ -389,6 +445,11 @@ def run():
     # Phase 4: Concept Cones (uses good_residuals, bad_residuals)
     if settings.use_concept_cones:
         print("* Extracting concept cones...")
+        logger.info(
+            "Concept cones enabled",
+            n_cones=settings.n_concept_cones,
+            min_cone_size=settings.min_cone_size,
+        )
         try:
             # Reuse cached residuals instead of recomputing
             cc_result = model.get_refusal_directions_concept_cones(
@@ -404,11 +465,20 @@ def run():
         except ConceptConeError as e:
             print(f"[yellow]  * Concept cone extraction failed: {e}[/yellow]")
             print("[yellow]  * Continuing with standard PCA extraction[/yellow]")
+            logger.warning(
+                "Concept cone extraction failed, falling back to PCA",
+                error=str(e),
+            )
             concept_cone_result = None
 
     # Phase 5: CAA - Extract compliance direction (uses bad_residuals)
     if settings.use_caa:
         print("* Extracting compliance direction for CAA...")
+        logger.info(
+            "CAA enabled",
+            addition_strength=settings.caa_addition_strength,
+            max_overlap=settings.caa_max_overlap,
+        )
         # Clear GPU memory before CAA extraction - this operation is memory-intensive
         # because it generates responses which requires large logit tensors
         empty_cache()
@@ -431,6 +501,10 @@ def run():
                     "[yellow]  * CAA extraction failed: insufficient samples (need 10+ refusals and 10+ compliant)[/yellow]"
                 )
                 print("[yellow]  * Continuing without CAA[/yellow]")
+                logger.warning(
+                    "CAA extraction failed due to insufficient samples",
+                    reason="Need 10+ refusals and 10+ compliant responses",
+                )
                 compliance_direction = None
         except torch.cuda.OutOfMemoryError:
             mem_info = get_gpu_memory_info()
@@ -488,6 +562,49 @@ def run():
         refusal_directions = direction_result.refusal_directions
         refusal_directions_multi = direction_result.refusal_directions_multi
 
+    # Log MPOA status prominently since it's a key setting that can be silently disabled
+    if settings.use_mpoa:
+        print(f"[green]MPOA enabled[/green] (norm_mode={settings.mpoa_norm_mode})")
+        logger.info(
+            "MPOA is enabled",
+            norm_mode=settings.mpoa_norm_mode,
+            min_scale=settings.mpoa_min_scale,
+            max_scale=settings.mpoa_max_scale,
+        )
+    else:
+        print("[dim]MPOA disabled[/dim] (using standard ablation)")
+        logger.debug("MPOA is disabled, using standard ablation")
+
+    # Log CAA status prominently
+    if settings.use_caa:
+        print(
+            f"[green]CAA enabled[/green] (addition_strength={settings.caa_addition_strength}, "
+            f"max_overlap={settings.caa_max_overlap})"
+        )
+        logger.info(
+            "CAA is enabled",
+            addition_strength=settings.caa_addition_strength,
+            max_overlap=settings.caa_max_overlap,
+        )
+    else:
+        print("[dim]CAA disabled[/dim]")
+        logger.debug("CAA is disabled")
+
+    # Log Concept Cones status
+    if settings.use_concept_cones:
+        print(
+            f"[green]Concept Cones enabled[/green] (n_cones={settings.n_concept_cones}, "
+            f"min_size={settings.min_cone_size})"
+        )
+        logger.info(
+            "Concept Cones is enabled",
+            n_cones=settings.n_concept_cones,
+            min_cone_size=settings.min_cone_size,
+        )
+    else:
+        print("[dim]Concept Cones disabled[/dim]")
+        logger.debug("Concept Cones is disabled")
+
     # Phase 6: Circuit Discovery
     if settings.use_circuit_ablation:
         # Check for GQA models upfront
@@ -531,6 +648,13 @@ def run():
         calibrated_params = trial_params
         if settings.use_activation_calibration:
             print("  * Computing activation statistics for calibration...")
+            logger.info(
+                "Applying activation calibration",
+                target_percentile=settings.activation_target_percentile,
+                layer_frac=settings.activation_calibration_layer_frac,
+                min_factor=settings.activation_calibration_min_factor,
+                max_factor=settings.activation_calibration_max_factor,
+            )
             bad_residuals_cal = model.get_residuals_batched(bad_prompts)
             activation_stats = model.compute_refusal_activation_stats(
                 refusal_directions,
@@ -550,6 +674,10 @@ def run():
         # Phase 6: Circuit-level ablation (if enabled and has circuits)
         if settings.use_circuit_ablation and refusal_circuits:
             print("  * Applying circuit-level ablation...")
+            logger.info(
+                "Applying circuit-level ablation",
+                n_circuits=len(refusal_circuits),
+            )
             circuit_result = model.abliterate_circuits(
                 refusal_circuits,
                 refusal_directions,
@@ -573,6 +701,11 @@ def run():
         # Phase 4: Concept Cones ablation
         if settings.use_concept_cones and concept_cone_result is not None:
             print("  * Applying concept cone ablation...")
+            logger.info(
+                "Applying concept cone ablation",
+                n_cones=len(concept_cone_result.cones),
+                use_mpoa=settings.use_mpoa,
+            )
             model.abliterate_concept_cones(
                 concept_cone_result,
                 calibrated_params,
@@ -586,6 +719,11 @@ def run():
         # Phase 5: CAA ablation
         elif settings.use_caa and compliance_direction is not None:
             print("  * Applying ablation with CAA...")
+            logger.info(
+                "Applying CAA ablation",
+                addition_strength=settings.caa_addition_strength,
+                use_mpoa=settings.use_mpoa,
+            )
             # Use supervised directions if available, otherwise standard
             ablation_directions = (
                 supervised_directions
@@ -629,6 +767,10 @@ def run():
         # Phase 2: Supervised directions (if extracted)
         elif supervised_directions is not None:
             print("  * Using supervised probe directions...")
+            logger.info(
+                "Applying supervised probe ablation",
+                use_mpoa=settings.use_mpoa,
+            )
             model.abliterate(
                 supervised_directions,
                 None,  # Per-layer mode for supervised directions
@@ -641,6 +783,12 @@ def run():
             )
         # Phase 1: Multi-direction ablation
         elif use_multi_direction and refusal_directions_multi is not None:
+            logger.info(
+                "Applying multi-direction ablation",
+                n_directions=refusal_directions_multi.shape[1],
+                direction_weights=[f"{w:.3f}" for w in direction_weights],
+                use_mpoa=settings.use_mpoa,
+            )
             model.abliterate_multi_direction(
                 refusal_directions_multi,
                 direction_weights,
@@ -653,6 +801,11 @@ def run():
             )
         # Original single-direction ablation
         else:
+            logger.info(
+                "Applying single-direction ablation",
+                direction_index=direction_index,
+                use_mpoa=settings.use_mpoa,
+            )
             model.abliterate(
                 refusal_directions,
                 direction_index,

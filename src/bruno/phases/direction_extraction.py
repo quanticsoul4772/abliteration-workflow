@@ -20,8 +20,11 @@ from ..config import Settings
 from ..constants import LOW_MAGNITUDE_WARNING
 from ..error_tracker import record_suppressed_error
 from ..exceptions import SacredDirectionError
+from ..logging import get_logger
 from ..model import Model, SacredDirectionResult
 from ..utils import empty_cache, get_gpu_memory_info, print
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -78,7 +81,9 @@ def extract_refusal_directions(
     bad_residuals = model.get_residuals_batched(bad_prompts)
     empty_cache()  # Clear memory after residual extraction
 
-    direction_weights = settings.direction_weights
+    # direction_weights will be set to computed eigenvalue weights only if enabled,
+    # otherwise left as None so main.py uses user-specified settings.direction_weights
+    direction_weights = None
     refusal_directions_multi = None
     use_multi_direction = False
 
@@ -103,8 +108,19 @@ def extract_refusal_directions(
                 f"  * Using eigenvalue-based weights ({settings.eigenvalue_weight_method}): "
                 f"{[f'{w:.3f}' for w in direction_weights]}"
             )
+            logger.info(
+                "Eigenvalue-based direction weights computed",
+                method=settings.eigenvalue_weight_method,
+                weights=[f"{w:.3f}" for w in direction_weights],
+            )
         else:
-            print(f"  * Using fixed weights: {settings.direction_weights}")
+            # Leave direction_weights as None so main.py uses settings.direction_weights
+            # This ensures user-specified weights are respected when eigenvalue_weights is disabled
+            print(f"  * Using user-specified fixed weights: {settings.direction_weights}")
+            logger.info(
+                "Eigenvalue weights disabled, will use user-specified direction weights",
+                weights=[f"{w:.3f}" for w in settings.direction_weights],
+            )
 
         # For compatibility, also compute mean-difference direction
         refusal_directions = F.normalize(
@@ -267,6 +283,12 @@ def extract_sacred_directions(
             print(
                 f"[yellow]Warning: High overlap ({overlap_stats['mean_overlap']:.3f}) between refusal and sacred directions. "
                 f"Orthogonalization will remove significant refusal signal.[/yellow]"
+            )
+            logger.warning(
+                "High sacred direction overlap detected",
+                mean_overlap=overlap_stats["mean_overlap"],
+                threshold=settings.sacred_overlap_threshold,
+                impact="Ablation effectiveness may be reduced",
             )
 
         # Orthogonalize refusal direction against sacred directions

@@ -272,7 +272,9 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
 
     # HuggingFace Hub dataset
     # Detect C4 dataset (massive, benefits from streaming)
-    is_c4 = "c4" in specification.dataset.lower()
+    # Use exact match to avoid false positives like "mc4", "c4de", etc.
+    dataset_lower = specification.dataset.lower()
+    is_c4 = dataset_lower in ("allenai/c4", "c4") or dataset_lower.endswith("/c4")
 
     if is_c4:
         # C4 is ~800GB - use streaming to avoid downloading shards

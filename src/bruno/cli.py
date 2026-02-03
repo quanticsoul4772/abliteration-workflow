@@ -54,12 +54,14 @@ def cli(ctx):
     Commands:
       abliterate    Run abliteration on a model (default)
       chat          Interactive chat with your model
+      show-config   Display effective configuration and exit
 
     \b
     Examples:
       bruno --model Qwen/Qwen2.5-7B-Instruct --n-trials 200
       bruno abliterate --model Qwen/Qwen2.5-7B
       bruno chat --model rawcell/bruno --4bit
+      bruno show-config --model Qwen/Qwen2.5-7B
     """
     # If no subcommand provided, run abliterate as default
     if ctx.invoked_subcommand is None:
@@ -83,6 +85,58 @@ def abliterate():
     from .main import main as run_abliteration
 
     run_abliteration()
+
+
+@cli.command("show-config")
+def show_config():
+    """Display effective configuration and exit.
+
+    Shows all configuration values that would be used for a run,
+    combining CLI arguments, environment variables, and config.toml.
+
+    Useful for verifying configuration before starting a long run.
+
+    \b
+    Example:
+      bruno show-config --model Qwen/Qwen2.5-7B-Instruct
+      bruno show-config  # Uses placeholder model
+    """
+    from pydantic import ValidationError
+
+    from .config import Settings
+    from .config_verify import (
+        log_config_status,
+        print_config_summary,
+        verify_config_was_parsed,
+    )
+    from .utils import print
+
+    # Inject a placeholder model into argv if not already there
+    # Settings requires a model, but we just want to show config
+    if "--model" not in sys.argv and "-m" not in sys.argv:
+        sys.argv.extend(["--model", "placeholder-model"])
+
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
+        for err in error.errors():
+            print(f"[bold]{err['loc'][0]}[/]: [yellow]{err['msg']}[/]")
+        sys.exit(1)
+
+    # Show config status
+    config_found = log_config_status()
+
+    # Check for silent failures
+    if config_found:
+        warnings = verify_config_was_parsed(settings)
+        for warning in warnings:
+            print(f"[yellow]Warning: {warning}[/yellow]")
+
+    # Print full config summary
+    print_config_summary(settings)
+
+    print("[dim]Run 'bruno --help' for usage information.[/dim]")
 
 
 @cli.command()
