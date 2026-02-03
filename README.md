@@ -146,11 +146,11 @@ docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/bruno \
 --use-neural-refusal-detection    # Zero-shot NLI detection (default: true)
 --ensemble-probe-pca              # Supervised + PCA ensemble (default: true)
 --use-activation-calibration      # Adaptive scaling (default: true)
---use-concept-cones               # Category-specific ablation (default: false, experimental)
---use-caa                         # Contrastive Activation Addition (default: false, experimental)
+--use-concept-cones               # Category-specific ablation (default: true)
+--use-caa                         # Contrastive Activation Addition (default: true)
 --use-circuit-ablation            # Attention head targeting (default: false, no GQA)
 --use-warm-start-params           # Model family warm-start (default: true)
---use-sacred-directions           # Preserve capabilities via MMLU directions (default: false)
+--use-sacred-directions           # Preserve capabilities via MMLU directions (default: true)
 --use-mpoa                        # Multi-Prompt Orthogonal Ablation (default: true)
 ```
 
