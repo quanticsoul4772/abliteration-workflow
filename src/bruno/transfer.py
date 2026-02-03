@@ -99,6 +99,16 @@ MODEL_PROFILES: dict[str, ModelAbliterationProfile] = {
         typical_kl_divergence=0.32,
         description="Phi family (Phi-2, Phi-3)",
     ),
+    "moonlight": ModelAbliterationProfile(
+        model_family="moonlight",
+        recommended_max_weight=1.10,
+        recommended_max_weight_position=0.65,
+        recommended_min_weight_frac=0.30,
+        recommended_min_weight_distance=0.35,
+        attn_vs_mlp_ratio=1.05,
+        typical_kl_divergence=0.30,
+        description="Moonlight family (Moonlight-16B-A3B from Moonshotai)",
+    ),
 }
 
 
@@ -120,6 +130,7 @@ def detect_model_family(model_name: str) -> str | None:
         "mistral": ["mistral", "mixtral"],
         "gemma": ["gemma"],
         "phi": ["phi-", "phi2", "phi3", "phi-2", "phi-3"],
+        "moonlight": ["moonlight", "moonshotai"],
     }
 
     for family, patterns in family_patterns.items():
