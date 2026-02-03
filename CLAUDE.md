@@ -123,10 +123,11 @@ Bruno now includes 7 phases of advanced abliteration improvements:
 | 1 | Neural Refusal Detection | ✅ ON | Zero-shot NLI for detecting soft refusals |
 | 2 | Supervised Probing + Ensemble | ✅ ON | Linear probes combined with PCA |
 | 3 | Activation Calibration | ✅ ON | Scale weights based on activation strength |
-| 4 | Concept Cones | OFF | Cluster harmful prompts by category |
-| 5 | CAA (Contrastive Activation Addition) | OFF | Add compliance direction |
+| 4 | Concept Cones | ✅ ON | Cluster harmful prompts by category |
+| 5 | CAA (Contrastive Activation Addition) | ✅ ON | Add compliance direction |
 | 6 | Circuit-Level Ablation | OFF | Target specific attention heads (⚠️ No GQA) |
 | 7 | Warm-Start Transfer | ✅ ON | Model family profiles for faster Optuna |
+| 8 | MPOA (Norm-Preserving Ablation) | ✅ ON | Preserves weight matrix norms for better capability retention |
 
 **Key files for advanced features:**
 - `src/bruno/model.py` - All Phase 1-7 implementations + Sacred Direction Preservation
@@ -271,13 +272,14 @@ Key parameters in `config.toml`:
 - `use_neural_refusal_detection`: Zero-shot NLI detection (default: true)
 - `ensemble_probe_pca`: Combine probe + PCA directions (default: true)
 - `use_activation_calibration`: Adaptive weight scaling (default: true)
+- `use_concept_cones`: Category-specific directions (default: true)
+- `use_caa`: Contrastive Activation Addition (default: true)
+- `use_mpoa`: Norm-preserving ablation (default: true)
 - `use_warm_start_params`: Model family warm-start (default: true)
 - `enable_validation`: Validation framework (default: true)
 
 **Phase 1-7 Advanced Settings (disabled by default):**
-- `use_concept_cones`: Category-specific directions
-- `use_caa`: Contrastive Activation Addition
-- `use_circuit_ablation`: Attention head targeting (⚠️ No GQA support)
+- `use_circuit_ablation`: Attention head targeting (⚠️ No GQA support - doesn't work with Llama 3.x, Qwen2.5, etc.)
 
 **Sacred Direction Preservation (experimental, disabled by default):**
 - `use_sacred_directions`: Orthogonalize refusal direction against capability-encoding directions to preserve model capabilities (MMLU, etc.)
