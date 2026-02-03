@@ -595,7 +595,7 @@ class Settings(BaseSettings):
 
     # MPOA (Norm-Preserving Biprojected Abliteration)
     use_mpoa: bool = Field(
-        default=False,
+        default=True,
         description="Use MPOA (Norm-Preserving Biprojected Abliteration) instead of standard ablation. MPOA preserves weight matrix norms after projection, preventing capability degradation. Typically results in 2-4x lower KL divergence and better benchmark retention.",
     )
 
