@@ -578,6 +578,10 @@ def run():
                 calibrated_params,
                 direction_weights=direction_weights if use_multi_direction else None,
                 layer_profiles=layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
         # Phase 5: CAA ablation
         elif settings.use_caa and compliance_direction is not None:
@@ -596,6 +600,10 @@ def run():
                 addition_strength=settings.caa_addition_strength,
                 max_overlap=settings.caa_max_overlap,
                 layer_profiles=layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
         # Phase 4: Iterative refinement
         elif settings.iterative_rounds > 1:
@@ -613,6 +621,10 @@ def run():
                 if settings.kl_divergence_tokens == 1
                 else None,
                 layer_profiles=layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
         # Phase 2: Supervised directions (if extracted)
         elif supervised_directions is not None:
@@ -622,6 +634,10 @@ def run():
                 None,  # Per-layer mode for supervised directions
                 calibrated_params,
                 layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
         # Phase 1: Multi-direction ablation
         elif use_multi_direction and refusal_directions_multi is not None:
@@ -630,6 +646,10 @@ def run():
                 direction_weights,
                 calibrated_params,
                 layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
         # Original single-direction ablation
         else:
@@ -638,6 +658,10 @@ def run():
                 direction_index,
                 calibrated_params,
                 layer_profiles,
+                use_mpoa=settings.use_mpoa,
+                mpoa_norm_mode=settings.mpoa_norm_mode,
+                mpoa_min_scale=settings.mpoa_min_scale,
+                mpoa_max_scale=settings.mpoa_max_scale,
             )
 
     trial_index = 0

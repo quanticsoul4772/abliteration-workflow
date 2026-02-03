@@ -1,0 +1,362 @@
+# =============================================================================
+# OPTIMIZED CONFIGURATION FOR MOONLIGHT-16B RE-ABLITERATION
+# =============================================================================
+#
+# Goal: Improve benchmark scores by reducing capability damage during abliteration
+#
+# Previous Results (first abliteration):
+#   - MMLU: 48.0% (target: 55%+)
+#   - HellaSwag: 56.0% (target: 65%+)
+#   - GSM8K: 51.0% (target: 55%+)
+#   - KL Divergence: 8.94 (target: <1.0)
+#   - Refusal Rate: 41% (target: <15%)
+#
+# Key Optimizations:
+#   1. Sacred direction protection (preserve capabilities)
+#   2. More conservative activation calibration
+#   3. Single iterative round (less aggressive)
+#   4. Higher probe accuracy threshold
+#   5. More optimization trials
+#
+# Hardware: H200 141GB on Vast.ai (REQUIRED - 2x RTX 4090 causes OOM)
+# =============================================================================
+
+model = "moonshotai/Moonlight-16B-A3B-Instruct"
+
+# =============================================================================
+# GPU SETTINGS
+# =============================================================================
+
+# Use balanced distribution across GPUs
+device_map = "balanced"
+
+# Disable weight caching for MoE model (saves memory)
+cache_weights = false
+
+# Disable torch.compile (not beneficial for MoE)
+compile = false
+
+# =============================================================================
+# BATCH SIZE SETTINGS
+# =============================================================================
+
+# Conservative batch size for MoE model
+batch_size = 4
+
+# Cap auto-detection
+max_batch_size = 32
+
+# Reduce generation length for faster evaluation
+max_response_length = 80
+refusal_check_tokens = 25
+
+# =============================================================================
+# OPTUNA OPTIMIZATION
+# =============================================================================
+
+# More trials for better optimization (find Pareto-optimal)
+n_trials = 300
+
+# Slightly more exploration for better coverage
+n_startup_trials = 40
+
+# SQLite storage for persistence (resume support)
+storage = "sqlite:///moonlight_reabliteration.db"
+
+# Study name for this experiment
+study_name = "moonlight_conservative_v2"
+
+# =============================================================================
+# AUTO-SAVE SETTINGS
+# =============================================================================
+
+auto_select = true
+auto_select_path = "/workspace/models/Moonlight-16B-A3B-Instruct-abliterated-v2"
+
+# =============================================================================
+# SACRED DIRECTION PROTECTION (CRITICAL FOR CAPABILITY PRESERVATION)
+# =============================================================================
+
+# Enable sacred direction protection - this is KEY for preserving capabilities
+use_sacred_directions = true
+
+# Extract MORE capability directions for thorough protection
+# Default is 5, but we use 10 for better coverage of reasoning/knowledge
+n_sacred_directions = 10
+
+# STRICTER overlap threshold - warn earlier if ablation might damage capabilities
+# Default is 0.3, we use 0.2 for more conservative protection
+sacred_overlap_threshold = 0.2
+
+# Use MMLU questions to extract capability directions
+[sacred_prompts]
+dataset = "cais/mmlu"
+config = "all"
+split = "validation[:300]"  # More samples for better direction extraction
+column = "question"
+
+# Baseline text for contrastive extraction
+[sacred_baseline_prompts]
+dataset = "wikitext"
+config = "wikitext-2-raw-v1"
+split = "train[:300]"
+column = "text"
+
+# =============================================================================
+# CONSERVATIVE ABLATION SETTINGS
+# =============================================================================
+
+# SINGLE iterative round - less aggressive ablation
+# The previous run may have over-ablated with multiple rounds
+iterative_rounds = 1
+
+# Lower KL threshold per round for early stopping
+max_kl_per_round = 0.3
+
+# =============================================================================
+# CONSERVATIVE ACTIVATION CALIBRATION
+# =============================================================================
+
+# Enable activation calibration
+use_activation_calibration = true
+
+# MORE CONSERVATIVE percentile - ablate less aggressively
+# Default is 0.75, we use 0.60 for gentler ablation
+activation_target_percentile = 0.60
+
+# Measure from mid-layers
+activation_calibration_layer_frac = 0.5
+
+# Tighter calibration bounds
+activation_calibration_min_factor = 0.6
+activation_calibration_max_factor = 1.5
+
+# =============================================================================
+# DIRECTION EXTRACTION (CONSERVATIVE)
+# =============================================================================
+
+# Use PCA extraction
+use_pca_extraction = true
+
+# Fewer refusal directions = more focused ablation
+n_refusal_directions = 2
+
+# Lower weights for secondary directions
+direction_weights = [1.0, 0.3]
+
+# Use eigenvalue-based weighting
+use_eigenvalue_weights = true
+eigenvalue_weight_method = "softmax"
+eigenvalue_weight_temperature = 1.5  # Higher = more uniform = less aggressive
+
+# Lower contrastive alpha for gentler direction extraction
+pca_alpha = 0.8
+
+# =============================================================================
+# SUPERVISED PROBING (HIGHER QUALITY THRESHOLD)
+# =============================================================================
+
+# Enable supervised probing
+use_supervised_probing = true
+
+# HIGHER accuracy threshold - only use high-quality probes
+min_probe_accuracy = 0.75
+
+# Use ensemble with probe-weighted direction
+ensemble_probe_pca = true
+ensemble_weight_probe = 0.6  # Slightly less probe weight
+ensemble_weight_pca = 0.4    # More PCA weight for stability
+
+# =============================================================================
+# CAPABILITY PRESERVATION FEATURES (ENABLED)
+# =============================================================================
+
+# Orthogonalize refusal direction against helpfulness
+orthogonalize_directions = true
+
+# Datasets for helpfulness direction
+[helpfulness_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[400:700]"  # More samples
+column = "text"
+
+# Use C4 for contrast (not educational content)
+[unhelpfulness_prompts]
+dataset = "allenai/c4"
+config = "en"
+split = "train[:300]"
+column = "text"
+
+# =============================================================================
+# LAYER RANGE PROFILES (CONSERVATIVE)
+# =============================================================================
+
+# Enable per-layer-range profiles
+enable_layer_profiles = true
+
+# More conservative layer targeting
+# Early layers: VERY light touch (preserve embeddings)
+# Middle layers: Primary target but reduced weight
+# Late layers: Moderate (preserve output quality)
+[[layer_range_profiles]]
+range_start = 0.0
+range_end = 0.35
+weight_multiplier = 0.3  # Very light (was 0.5)
+
+[[layer_range_profiles]]
+range_start = 0.35
+range_end = 0.65
+weight_multiplier = 0.8  # Reduced from 1.0
+
+[[layer_range_profiles]]
+range_start = 0.65
+range_end = 1.0
+weight_multiplier = 0.5  # Reduced from 0.8
+
+# =============================================================================
+# MPOA: NORM-PRESERVING BIPROJECTED ABLITERATION (ENABLED)
+# =============================================================================
+#
+# MPOA preserves weight matrix norms after projection, preventing capability
+# degradation. This is KEY for improving benchmark scores while reducing KL.
+#
+# Expected improvements from MPOA:
+# - 2-4x lower KL divergence
+# - +3-7% MMLU retention
+# - +5-10% HellaSwag/GSM8K retention
+# - Fewer hallucinations and glitches
+
+# Enable MPOA for better capability preservation
+use_mpoa = true
+
+# Row-wise norm preservation (recommended for transformer weights)
+# Preserves each output neuron's "loudness" after projection
+mpoa_norm_mode = "row"
+
+# Scale bounds for norm preservation (prevents extreme weight changes)
+mpoa_min_scale = 0.5  # Prevents over-shrinking
+mpoa_max_scale = 2.0  # Prevents over-inflation
+
+# =============================================================================
+# ADVANCED FEATURES (DISABLED FOR STABILITY)
+# =============================================================================
+
+# Disable concept cones - adds complexity, may reduce stability
+use_concept_cones = false
+
+# Disable CAA - focus on pure ablation first
+use_caa = false
+
+# Disable circuit ablation (doesn't work with MoE anyway)
+use_circuit_ablation = false
+
+# =============================================================================
+# WARM-START OPTIMIZATION
+# =============================================================================
+
+# Enable warm-start from model family profiles
+use_warm_start_params = true
+
+# Moonlight uses DeepSeek-V3 architecture (not in standard profiles)
+# Leave empty for auto-detection to try best match
+model_family = ""
+
+# More warm-start trials for better initialization
+warm_start_n_trials = 5
+
+# =============================================================================
+# IMPROVED KL DIVERGENCE MEASUREMENT
+# =============================================================================
+
+# More tokens for accurate capability measurement
+kl_divergence_tokens = 10
+
+# Scale to balance with refusal optimization
+kl_divergence_scale = 1.0
+
+# =============================================================================
+# REFUSAL DETECTION (THOROUGH)
+# =============================================================================
+
+refusal_detection_mode = "lenient"
+detect_soft_refusals = true
+detect_evasive_responses = true
+
+# Neural refusal detection
+use_neural_refusal_detection = true
+neural_detection_for_optuna = true
+neural_detection_threshold = 0.5
+
+# =============================================================================
+# VALIDATION
+# =============================================================================
+
+enable_validation = true
+run_mmlu_validation = true
+save_validation_report = true
+
+# More comprehensive MMLU evaluation
+mmlu_categories = [
+    "abstract_algebra",
+    "high_school_physics",
+    "high_school_chemistry",
+    "computer_security",
+    "machine_learning",
+    "professional_law",
+    "clinical_knowledge",
+]
+mmlu_samples_per_category = 25
+mmlu_few_shot = 5
+
+# =============================================================================
+# DATASETS
+# =============================================================================
+
+system_prompt = "You are a helpful assistant."
+
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:500]"  # More training prompts
+column = "text"
+
+[bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:500]"  # More training prompts
+column = "text"
+
+[good_evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:150]"  # More eval prompts
+column = "text"
+
+[bad_evaluation_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:150]"  # More eval prompts
+column = "text"
+
+# =============================================================================
+# EXPECTED IMPROVEMENTS
+# =============================================================================
+#
+# With these conservative settings, we expect:
+#
+# | Metric | Previous | Target | Improvement |
+# |--------|----------|--------|-------------|
+# | MMLU | 48.0% | 54-58% | +6-10% |
+# | HellaSwag | 56.0% | 65-72% | +9-16% |
+# | GSM8K | 51.0% | 56-62% | +5-11% |
+# | KL Divergence | 8.94 | <1.0 | 9x lower |
+# | Refusal Rate | 41% | <15% | Better ablation |
+#
+# Runtime estimate on H200 141GB:
+# - 300 trials @ ~2 min/trial = ~10 hours
+# - Plus model loading, validation, etc. = ~12-14 hours total
+#
+# Key changes that should improve scores:
+# 1. MPOA (Norm-Preserving Biprojected Abliteration) - preserves weight norms
+# 2. Sacred direction protection preserves MMLU/reasoning capabilities
+# 3. Lower activation_target_percentile = gentler ablation
+# 4. Single iterative round = less over-ablation
+# 5. Conservative layer profiles = preserve early/late layers
+# 6. More optimization trials = better Pareto frontier
+# =============================================================================

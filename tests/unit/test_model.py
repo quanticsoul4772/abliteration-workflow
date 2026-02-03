@@ -1238,7 +1238,14 @@ class TestModelMultiDirectionAblation:
         captured_params = []
 
         def capture_abliterate(
-            directions, direction_index, params, layer_profiles=None
+            directions,
+            direction_index,
+            params,
+            layer_profiles=None,
+            use_mpoa=False,
+            mpoa_norm_mode="row",
+            mpoa_min_scale=0.5,
+            mpoa_max_scale=2.0,
         ):
             captured_params.append(params)
 

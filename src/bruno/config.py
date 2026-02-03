@@ -593,6 +593,27 @@ class Settings(BaseSettings):
         description="Use warm-start parameters from model family profiles for faster Optuna convergence. Enqueues initial trials based on known good hyperparameters for the model family (llama, qwen, mistral, etc.).",
     )
 
+    # MPOA (Norm-Preserving Biprojected Abliteration)
+    use_mpoa: bool = Field(
+        default=False,
+        description="Use MPOA (Norm-Preserving Biprojected Abliteration) instead of standard ablation. MPOA preserves weight matrix norms after projection, preventing capability degradation. Typically results in 2-4x lower KL divergence and better benchmark retention.",
+    )
+
+    mpoa_norm_mode: Literal["row", "column", "frobenius"] = Field(
+        default="row",
+        description="Norm preservation mode for MPOA: 'row' (preserves each output neuron's magnitude - recommended), 'column' (preserves input feature contributions), 'frobenius' (preserves overall matrix magnitude).",
+    )
+
+    mpoa_min_scale: float = Field(
+        default=0.5,
+        description="Minimum scaling factor for MPOA norm preservation. Prevents extreme shrinking of weights when projection removes a large component. Lower values allow more aggressive ablation but risk capability damage.",
+    )
+
+    mpoa_max_scale: float = Field(
+        default=2.0,
+        description="Maximum scaling factor for MPOA norm preservation. Prevents extreme inflation of weights when projection removes a small component. Higher values allow more aggressive norm restoration but risk instability.",
+    )
+
     model_family: str = Field(
         default="",
         description="Model family for warm-start parameters. Auto-detected from model name if empty. Options: 'llama', 'qwen', 'mistral', 'gemma', 'phi'.",
@@ -737,6 +758,32 @@ class Settings(BaseSettings):
         if not 0.0 <= v <= 1.0:
             raise ValueError("caa_max_overlap must be between 0.0 and 1.0")
         return v
+
+    @field_validator("mpoa_min_scale")
+    @classmethod
+    def validate_mpoa_min_scale(cls, v: float) -> float:
+        """Ensure mpoa_min_scale is positive."""
+        if v <= 0.0:
+            raise ValueError("mpoa_min_scale must be greater than 0")
+        return v
+
+    @field_validator("mpoa_max_scale")
+    @classmethod
+    def validate_mpoa_max_scale(cls, v: float) -> float:
+        """Ensure mpoa_max_scale is greater than mpoa_min_scale."""
+        if v <= 0.0:
+            raise ValueError("mpoa_max_scale must be greater than 0")
+        return v
+
+    @model_validator(mode="after")
+    def validate_mpoa_scale_range(self) -> "Settings":
+        """Ensure mpoa_max_scale >= mpoa_min_scale."""
+        if self.mpoa_max_scale < self.mpoa_min_scale:
+            raise ValueError(
+                f"mpoa_max_scale ({self.mpoa_max_scale}) must be >= "
+                f"mpoa_min_scale ({self.mpoa_min_scale})"
+            )
+        return self
 
     @field_validator("circuit_importance_threshold")
     @classmethod

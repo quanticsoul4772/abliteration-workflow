@@ -253,6 +253,34 @@ model_family = ""
 warm_start_n_trials = 3
 
 # =============================================================================
+# MPOA: NORM-PRESERVING BIPROJECTED ABLITERATION
+# =============================================================================
+#
+# MPOA is an advanced abliteration technique that preserves weight matrix norms
+# after projection, preventing capability degradation. Standard abliteration
+# reduces matrix norms which damages learned feature representations.
+#
+# Benefits of MPOA:
+# - 2-4x lower KL divergence (less distribution shift)
+# - Better MMLU/capability benchmark retention
+# - Fewer hallucinations and glitches
+# - More stable model behavior
+#
+# Trade-offs:
+# - Slightly more compute per ablation (~5% overhead)
+# - May require parameter retuning from standard abliteration
+
+# Enable MPOA instead of standard ablation
+use_mpoa = false
+
+# Norm preservation mode:
+# - "row": Preserve each output neuron's magnitude (recommended)
+#          Each row of W corresponds to one output dimension
+# - "column": Preserve each input feature's contribution
+# - "frobenius": Preserve overall matrix magnitude (simplest)
+mpoa_norm_mode = "row"
+
+# =============================================================================
 # PHASE 2: REFUSAL DETECTION
 # =============================================================================
 

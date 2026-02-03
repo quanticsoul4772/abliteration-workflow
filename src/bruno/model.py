@@ -1204,7 +1204,23 @@ class Model:
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
         layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ):
+        """Abliterate the model by projecting out refusal directions.
+
+        Args:
+            refusal_directions: Refusal directions tensor
+            direction_index: Index for global direction mode, or None for per-layer
+            parameters: Abliteration parameters per component
+            layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA ('row', 'column', 'frobenius')
+            mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
+            mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
+        """
         if direction_index is None:
             refusal_direction = None
             global_projector = None
@@ -1303,8 +1319,21 @@ class Model:
                 for matrix in matrices:
                     # Reuse cached projector per device to prevent memory accumulation
                     device_projector = get_device_projector(projector, matrix.device)
-                    # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+
+                    if use_mpoa:
+                        # MPOA: Norm-Preserving Biprojected Abliteration
+                        # Preserve norms to prevent capability degradation
+                        self._apply_mpoa_projection(
+                            matrix,
+                            device_projector,
+                            weight,
+                            mpoa_norm_mode,
+                            mpoa_min_scale,
+                            mpoa_max_scale,
+                        )
+                    else:
+                        # Standard abliteration: in-place subtraction
+                        matrix.sub_(weight * (device_projector @ matrix))
 
             # Clear CUDA cache periodically to prevent memory fragmentation
             if layer_index % CACHE_CLEAR_INTERVAL == (CACHE_CLEAR_INTERVAL - 1):
@@ -1312,6 +1341,79 @@ class Model:
 
         # Clear the device projector cache to prevent memory leaks
         device_projectors_cache.clear()
+
+    def _apply_mpoa_projection(
+        self,
+        matrix: Tensor,
+        projector: Tensor,
+        weight: float,
+        norm_mode: str = "row",
+        min_scale: float = 0.5,
+        max_scale: float = 2.0,
+    ) -> None:
+        """Apply MPOA (Norm-Preserving Biprojected Abliteration) to a weight matrix.
+
+        MPOA preserves the original norms of the weight matrix after projection,
+        preventing capability degradation that occurs with standard abliteration.
+
+        The key insight is that standard abliteration `W' = W - (r @ r^T @ W)` reduces
+        the matrix norm, which damages the model's learned feature representations.
+        MPOA rescales the matrix to preserve the original norms.
+
+        Args:
+            matrix: Weight matrix to modify in-place
+            projector: Projection matrix (r @ r^T)
+            weight: Abliteration weight/strength
+            norm_mode: How to preserve norms:
+                - 'row': Preserve each row's norm (recommended for attention o_proj)
+                        Each row corresponds to an output neuron's "loudness"
+                - 'column': Preserve each column's norm
+                        Each column corresponds to an input feature's contribution
+                - 'frobenius': Preserve overall matrix Frobenius norm
+                        Simplest but least targeted preservation
+            min_scale: Minimum scaling factor to prevent extreme shrinking (default 0.5)
+                       Prevents capability damage from over-aggressive ablation
+            max_scale: Maximum scaling factor to prevent extreme inflation (default 2.0)
+                       Prevents instability from over-aggressive norm restoration
+        """
+        # Step 1: Store original norms based on mode
+        if norm_mode == "row":
+            # Preserve each output neuron's magnitude
+            original_norms = torch.linalg.norm(matrix, dim=1, keepdim=True)
+        elif norm_mode == "column":
+            # Preserve each input feature's contribution
+            original_norms = torch.linalg.norm(matrix, dim=0, keepdim=True)
+        else:  # frobenius
+            # Preserve overall matrix magnitude (scalar)
+            original_norm = torch.linalg.norm(matrix)
+
+        # Step 2: Apply standard projection removal
+        # W' = W - weight * (projector @ W)
+        projection = weight * (projector @ matrix)
+        matrix.sub_(projection)
+
+        # Step 3: Rescale to preserve original norms
+        if norm_mode == "row":
+            new_norms = torch.linalg.norm(matrix, dim=1, keepdim=True)
+            # Avoid division by zero
+            scaling = original_norms / (new_norms + EPSILON)
+            # Clamp scaling to prevent extreme values
+            scaling = torch.clamp(scaling, min=min_scale, max=max_scale)
+            matrix.mul_(scaling)
+        elif norm_mode == "column":
+            new_norms = torch.linalg.norm(matrix, dim=0, keepdim=True)
+            scaling = original_norms / (new_norms + EPSILON)
+            scaling = torch.clamp(scaling, min=min_scale, max=max_scale)
+            matrix.mul_(scaling)
+        else:  # frobenius
+            new_norm = torch.linalg.norm(matrix)
+            # Check both original and new norms to handle edge cases
+            if original_norm > EPSILON and new_norm > EPSILON:
+                scaling = original_norm / new_norm
+                scaling = torch.clamp(scaling, min=min_scale, max=max_scale)
+                matrix.mul_(scaling)
+            # If original_norm is near-zero, matrix was already near-zero - no scaling needed
+            # If new_norm is near-zero but original wasn't, something went wrong - skip scaling to avoid instability
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [
@@ -1844,6 +1946,10 @@ class Model:
         base_logprobs: Tensor | None = None,
         kl_check_prompts: list[str] | None = None,
         layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ) -> tuple[int, list[float]]:
         """Iteratively extract and ablate refusal directions.
 
@@ -1859,6 +1965,9 @@ class Model:
             max_kl_per_round: Maximum KL divergence allowed per round
             base_logprobs: Pre-computed logprobs for KL calculation
             kl_check_prompts: Prompts to use for KL checking
+            layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA
 
         Returns:
             Tuple of (rounds_performed, list of KL values per round)
@@ -1889,7 +1998,16 @@ class Model:
             refusal_directions = F.normalize(raw_difference, p=2, dim=1)
 
             # Ablate this round's directions (per-layer mode)
-            self.abliterate(refusal_directions, None, parameters, layer_profiles)
+            self.abliterate(
+                refusal_directions,
+                None,
+                parameters,
+                layer_profiles,
+                use_mpoa=use_mpoa,
+                mpoa_norm_mode=mpoa_norm_mode,
+                mpoa_min_scale=mpoa_min_scale,
+                mpoa_max_scale=mpoa_max_scale,
+            )
 
             # Capability guard - measure KL after each round
             if (
@@ -1925,6 +2043,10 @@ class Model:
         direction_weights: list[float],
         parameters: dict[str, "AbliterationParameters"],
         layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ):
         """Abliterate multiple refusal directions with configurable weights.
 
@@ -1932,6 +2054,11 @@ class Model:
             refusal_directions: Shape (n_layers, n_components, hidden_dim)
             direction_weights: Weight for each component
             parameters: Abliteration parameters for each component
+            layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA
+            mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
+            mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
         """
         n_components = refusal_directions.shape[1]
 
@@ -1958,7 +2085,16 @@ class Model:
                 )
 
             # Apply abliteration with scaled weights (per-layer mode)
-            self.abliterate(single_direction, None, scaled_parameters, layer_profiles)
+            self.abliterate(
+                single_direction,
+                None,
+                scaled_parameters,
+                layer_profiles,
+                use_mpoa=use_mpoa,
+                mpoa_norm_mode=mpoa_norm_mode,
+                mpoa_min_scale=mpoa_min_scale,
+                mpoa_max_scale=mpoa_max_scale,
+            )
 
     # Phase 2: Supervised Refusal Probing
     def get_refusal_directions_supervised(
@@ -2360,6 +2496,10 @@ class Model:
         parameters: dict[str, "AbliterationParameters"],
         direction_weights: list[float] | None = None,
         layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ) -> None:
         """Abliterate using concept cone-specific directions.
 
@@ -2372,6 +2512,10 @@ class Model:
             direction_weights: Optional weights for each direction component.
                 If None, uses first direction only for each cone.
             layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA
+            mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
+            mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
         """
         if not cone_result.cones:
             print("[yellow]Warning: No concept cones to abliterate.[/yellow]")
@@ -2406,7 +2550,14 @@ class Model:
                 # Use first direction only
                 primary_direction = cone.directions[:, 0, :]
                 self.abliterate(
-                    primary_direction, None, scaled_parameters, layer_profiles
+                    primary_direction,
+                    None,
+                    scaled_parameters,
+                    layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
                 )
             else:
                 # Use multiple directions with weights
@@ -2415,6 +2566,10 @@ class Model:
                     direction_weights,
                     scaled_parameters,
                     layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
                 )
 
     def get_refusal_directions_ensemble(
@@ -2519,6 +2674,10 @@ class Model:
         addition_strength: float = 0.3,
         max_overlap: float = 0.5,
         layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ) -> bool:
         """Combined ablation: remove refusal direction + add compliance direction.
 
@@ -2539,6 +2698,10 @@ class Model:
             addition_strength: Multiplier for compliance direction addition (default 0.3)
             max_overlap: Maximum allowed cosine similarity (default 0.5)
             layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA
+            mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
+            mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
 
         Returns:
             True if CAA addition was applied, False if skipped due to high overlap
@@ -2594,6 +2757,10 @@ class Model:
                 None,  # Per-layer mode
                 scaled_parameters,
                 layer_profiles=layer_profiles,
+                use_mpoa=use_mpoa,
+                mpoa_norm_mode=mpoa_norm_mode,
+                mpoa_min_scale=mpoa_min_scale,
+                mpoa_max_scale=mpoa_max_scale,
             )
         else:
             # Single direction
@@ -2602,6 +2769,10 @@ class Model:
                 None,  # Per-layer mode
                 scaled_parameters,
                 layer_profiles=layer_profiles,
+                use_mpoa=use_mpoa,
+                mpoa_norm_mode=mpoa_norm_mode,
+                mpoa_min_scale=mpoa_min_scale,
+                mpoa_max_scale=mpoa_max_scale,
             )
 
         # Step 2: Add compliance direction (only if overlap is acceptable)
@@ -2834,6 +3005,10 @@ class Model:
         circuits: list[RefusalCircuit],
         refusal_directions: Tensor,
         ablation_strength: float = 1.0,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
     ) -> CircuitAblationResult:
         """Abliterate only specific attention heads, not entire layers.
 
@@ -2848,6 +3023,10 @@ class Model:
             circuits: List of RefusalCircuit objects to ablate
             refusal_directions: Refusal directions, shape (n_layers, hidden_dim)
             ablation_strength: Base ablation strength multiplier (default 1.0)
+            use_mpoa: Use MPOA (Norm-Preserving Biprojected Abliteration)
+            mpoa_norm_mode: Norm preservation mode for MPOA ('row', 'column', 'frobenius')
+            mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
+            mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
 
         Returns:
             CircuitAblationResult with ablation statistics
@@ -2941,11 +3120,55 @@ class Model:
             projector = torch.outer(head_direction, head_direction).to(o_proj.dtype)
 
             # Ablate only this head's contribution
-            # o_proj[start_idx:end_idx, :] -= strength * (projector @ o_proj[start_idx:end_idx, :])
             head_weights = o_proj.data[start_idx:end_idx, :]
-            o_proj.data[start_idx:end_idx, :] = head_weights - strength * (
-                projector @ head_weights
-            )
+
+            if use_mpoa:
+                # MPOA: Norm-Preserving Biprojected Abliteration for circuit-level
+                # Store original norms based on mode
+                if mpoa_norm_mode == "row":
+                    original_norms = torch.linalg.norm(
+                        head_weights, dim=1, keepdim=True
+                    )
+                elif mpoa_norm_mode == "column":
+                    original_norms = torch.linalg.norm(
+                        head_weights, dim=0, keepdim=True
+                    )
+                else:  # frobenius
+                    original_norm = torch.linalg.norm(head_weights)
+
+                # Apply projection removal
+                new_weights = head_weights - strength * (projector @ head_weights)
+
+                # Rescale to preserve norms
+                if mpoa_norm_mode == "row":
+                    new_norms = torch.linalg.norm(new_weights, dim=1, keepdim=True)
+                    scaling = original_norms / (new_norms + EPSILON)
+                    scaling = torch.clamp(
+                        scaling, min=mpoa_min_scale, max=mpoa_max_scale
+                    )
+                    new_weights = new_weights * scaling
+                elif mpoa_norm_mode == "column":
+                    new_norms = torch.linalg.norm(new_weights, dim=0, keepdim=True)
+                    scaling = original_norms / (new_norms + EPSILON)
+                    scaling = torch.clamp(
+                        scaling, min=mpoa_min_scale, max=mpoa_max_scale
+                    )
+                    new_weights = new_weights * scaling
+                else:  # frobenius
+                    new_norm = torch.linalg.norm(new_weights)
+                    if original_norm > EPSILON and new_norm > EPSILON:
+                        scaling = original_norm / new_norm
+                        scaling = torch.clamp(
+                            scaling, min=mpoa_min_scale, max=mpoa_max_scale
+                        )
+                        new_weights = new_weights * scaling
+
+                o_proj.data[start_idx:end_idx, :] = new_weights
+            else:
+                # Standard abliteration
+                o_proj.data[start_idx:end_idx, :] = head_weights - strength * (
+                    projector @ head_weights
+                )
 
             circuits_ablated += 1
 
