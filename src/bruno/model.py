@@ -995,6 +995,7 @@ class Model:
 
         Caches only attn.o_proj and mlp.down_proj components per layer,
         reducing memory footprint by ~55% vs full state_dict caching.
+        Also caches gate weights for MoE models.
 
         This enables weight caching for 32B+ models that would otherwise
         experience OOM when caching the full state_dict (e.g., 62GB model
@@ -1012,6 +1013,8 @@ class Model:
                 0: {
                     "attn.o_proj": [tensor1],  # Always 1 tensor
                     "mlp.down_proj": [tensor1, tensor2, ...]  # 1 for dense, 8 for MoE
+                    "gate.weight": [tensor1],  # MoE gate weight (if present)
+                    "gate.bias": [tensor1],  # MoE gate bias (if present)
                 },
                 1: { ... },
                 ...
@@ -1047,6 +1050,27 @@ class Model:
                         raise ModelLoadError(
                             f"Failed to clone weights at layer {layer_idx}. Error: {e}"
                         ) from e
+
+                # Add gate weight caching for MoE models
+                layer = self.get_layers()[layer_idx]
+                if hasattr(layer.mlp, "gate"):
+                    gate = layer.mlp.gate
+                    if hasattr(gate, "weight"):
+                        try:
+                            cache[layer_idx]["gate.weight"] = [
+                                gate.weight.clone().detach()
+                            ]
+                        except RuntimeError:
+                            pass  # Not critical if gate caching fails
+
+                    # Also cache bias if present (e_score_correction in DeepSeek)
+                    if hasattr(gate, "e_score_correction"):
+                        try:
+                            cache[layer_idx]["gate.bias"] = [
+                                gate.e_score_correction.clone().detach()
+                            ]
+                        except RuntimeError:
+                            pass  # Not critical if bias caching fails
 
             # Validation: Ensure cache is not empty and has expected structure
             if not cache:
@@ -1088,9 +1112,9 @@ class Model:
         Uses selective layer-wise cache if available (fast, ~10-15s for 32B models),
         otherwise reloads from disk (slow, ~60-120s for 32B models).
 
-        The selective cache only stores abliterable components (attn.o_proj, mlp.down_proj),
-        reducing memory usage by ~55% vs full state_dict caching while maintaining
-        fast reload performance.
+        The selective cache only stores abliterable components (attn.o_proj, mlp.down_proj)
+        and gate weights for MoE models, reducing memory usage by ~55% vs full state_dict
+        caching while maintaining fast reload performance.
 
         Raises:
             ModelLoadError: If cache restoration fails (missing layers, shape mismatches, etc.)
@@ -1182,6 +1206,53 @@ class Model:
                                     f"Failed to restore weights at layer {layer_idx}, "
                                     f"component '{component}', matrix {matrix_idx}: {e}"
                                 ) from e
+
+                    # Restore gate weights for MoE models
+                    layer = self.get_layers()[layer_idx]
+                    if hasattr(layer.mlp, "gate"):
+                        gate = layer.mlp.gate
+
+                        # Restore gate weight
+                        if (
+                            "gate.weight" in cached_layer
+                            and hasattr(gate, "weight")
+                            and cached_layer["gate.weight"]
+                        ):
+                            cached_gate_weight = cached_layer["gate.weight"][0]
+                            if gate.weight.shape == cached_gate_weight.shape:
+                                if gate.weight.device != cached_gate_weight.device:
+                                    cached_gate_weight = cached_gate_weight.to(
+                                        device=gate.weight.device
+                                    )
+                                if gate.weight.dtype != cached_gate_weight.dtype:
+                                    cached_gate_weight = cached_gate_weight.to(
+                                        dtype=gate.weight.dtype
+                                    )
+                                gate.weight.copy_(cached_gate_weight)
+
+                        # Restore gate bias (e_score_correction)
+                        if (
+                            "gate.bias" in cached_layer
+                            and hasattr(gate, "e_score_correction")
+                            and cached_layer["gate.bias"]
+                        ):
+                            cached_gate_bias = cached_layer["gate.bias"][0]
+                            if gate.e_score_correction.shape == cached_gate_bias.shape:
+                                if (
+                                    gate.e_score_correction.device
+                                    != cached_gate_bias.device
+                                ):
+                                    cached_gate_bias = cached_gate_bias.to(
+                                        device=gate.e_score_correction.device
+                                    )
+                                if (
+                                    gate.e_score_correction.dtype
+                                    != cached_gate_bias.dtype
+                                ):
+                                    cached_gate_bias = cached_gate_bias.to(
+                                        dtype=gate.e_score_correction.dtype
+                                    )
+                                gate.e_score_correction.copy_(cached_gate_bias)
         else:
             # Fallback: Reload from disk when caching disabled
             self.model = AutoModelForCausalLM.from_pretrained(
@@ -1971,9 +2042,7 @@ class Model:
         batches = list(batchify(prompts, self.settings.batch_size))
 
         for batch_idx, batch in enumerate(batches):
-            self._extract_batch_with_retry(
-                batch, batch_idx, residuals, failed_batches
-            )
+            self._extract_batch_with_retry(batch, batch_idx, residuals, failed_batches)
 
         if not residuals:
             raise ResidualExtractionError(
@@ -5147,7 +5216,9 @@ class Model:
 
             # Skip if direction contains NaN/Inf
             if torch.isnan(direction).any() or torch.isinf(direction).any():
-                logger.warning(f"Skipping gate at layer {layer_idx}: direction contains NaN/Inf")
+                logger.warning(
+                    f"Skipping gate at layer {layer_idx}: direction contains NaN/Inf"
+                )
                 continue
 
             # Apply layer profile multiplier
@@ -5189,7 +5260,9 @@ class Model:
         # Register hooks to capture expert selections per prompt
         hooks = []
         captured_experts: dict[int, set[int]] = {}  # layer_idx -> expert indices
-        missing_router_indices_warned = False  # Track if we've warned about unrecognized output format
+        missing_router_indices_warned = (
+            False  # Track if we've warned about unrecognized output format
+        )
 
         def make_hook(layer_idx: int):
             def hook(module, input, output):
@@ -5206,12 +5279,16 @@ class Model:
                         captured_experts.setdefault(layer_idx, set()).update(indices)
                     elif isinstance(output, tuple) and len(output) >= 2:
                         # Some gates return (scores, indices) tuple
-                        potential_indices = output[0]  # DeepSeek: (topk_idx, topk_weight, ...)
+                        potential_indices = output[
+                            0
+                        ]  # DeepSeek: (topk_idx, topk_weight, ...)
                         if hasattr(potential_indices, "flatten") and torch.is_tensor(
                             potential_indices
                         ):
                             indices = potential_indices.flatten().tolist()
-                            captured_experts.setdefault(layer_idx, set()).update(indices)
+                            captured_experts.setdefault(layer_idx, set()).update(
+                                indices
+                            )
                     else:
                         # Gate output format not recognized
                         if not missing_router_indices_warned:
@@ -5361,7 +5438,9 @@ class Model:
                 total = refusal_activations + comply_activations
                 if total > 0:
                     # Score: -1 if only activates on refusals, +1 if only on compliance
-                    compliance_score = (comply_activations - refusal_activations) / total
+                    compliance_score = (
+                        comply_activations - refusal_activations
+                    ) / total
                 else:
                     compliance_score = 0.0
 
@@ -5524,7 +5603,9 @@ class Model:
         )
 
         # Stage 3: Targeted expert abliteration
-        logger.info("Two-stage MoE abliteration: Stage 3 - Abliterating targeted experts")
+        logger.info(
+            "Two-stage MoE abliteration: Stage 3 - Abliterating targeted experts"
+        )
         expert_stats = self.abliterate_moe_targeted(
             refusal_directions,
             parameters,
