@@ -114,6 +114,21 @@ Bruno is a tool for **neural behavior modification** in language models using ac
 
 **Vision:** A personal neural engineering workbench for understanding and reshaping LLM behavior at the weight level. See [ROADMAP.md](ROADMAP.md) for full vision.
 
+## Dependencies & Security
+
+**Critical Requirements:**
+- **PyTorch >= 2.8.0** (currently 2.10.0+cu128)
+  - **Security:** Patches CVE for torch.load RCE vulnerability (< 2.6.0)
+  - **Security:** Patches CVE for CTC loss DoS vulnerability (<= 2.7.1)
+  - CUDA 12.8 (backward compatible with CUDA 12.1+ hardware)
+- **Python:** 3.10, 3.11, 3.12 (< 3.13 due to torch wheel availability)
+- **transformers >= 4.48.2** (Moonlight requires 4.48.2 exactly)
+
+**Installation:**
+```bash
+uv sync --all-extras --dev
+```
+
 ### Phase 1-7 Advanced Improvements (NEW)
 
 Bruno now includes 7 phases of advanced abliteration improvements:
@@ -647,6 +662,47 @@ bruno --use-caa false
 - `trust_remote_code=True` (handled in bruno v2.0.0+)
 
 See `docs/ABLITERATION_CHECKLIST.md` for full Moonlight setup guide.
+
+### HuggingFace Inference Endpoint Deployment
+**Problem:** vLLM fails to load Moonlight with `ValueError: Please pass the argument trust_remote_code=True`
+
+**Cause:** Moonlight uses custom modeling code and requires `trust_remote_code=True` to load.
+
+**Solution:** Configure the model repository with trust_remote_code before deploying endpoint:
+
+```python
+from huggingface_hub import HfApi
+import json
+
+api = HfApi(token=YOUR_TOKEN)
+
+# Download config.json
+config_path = api.hf_hub_download(
+    repo_id='rawcell/Moonlight-16B-A3B-Instruct-bruno',
+    filename='config.json'
+)
+
+with open(config_path) as f:
+    config = json.load(f)
+
+# Add trust_remote_code
+config['trust_remote_code'] = True
+
+# Upload back
+with open('temp_config.json', 'w') as f:
+    json.dump(config, f, indent=2)
+
+api.upload_file(
+    path_or_fileobj='temp_config.json',
+    path_in_repo='config.json',
+    repo_id='rawcell/Moonlight-16B-A3B-Instruct-bruno',
+    repo_type='model'
+)
+```
+
+**Alternative:** Add environment variable to Inference Endpoint:
+- Key: `VLLM_TRUST_REMOTE_CODE`
+- Value: `1`
 
 ### Ensemble Probe Failing
 **Problem:** `SupervisedProbeError` about class imbalance or low accuracy.
