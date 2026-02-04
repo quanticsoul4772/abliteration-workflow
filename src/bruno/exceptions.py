@@ -205,7 +205,7 @@ class WarmStartError(ConfigurationError):
 
 
 # ============================================================================
-# Abliteration Errors (2)
+# Abliteration Errors (5)
 # ============================================================================
 
 
@@ -226,6 +226,45 @@ class CircuitAblationError(AbliterationError):
     - No refusal circuits discovered
     - Attention head ablation failed
     - Incompatible model architecture
+    """
+
+    pass
+
+
+class WeightModificationError(AbliterationError):
+    """Exception raised when weight matrix modification fails.
+
+    Common causes:
+    - Shape mismatch between projector and weight matrix
+    - NaN or Inf values in modified weights
+    - Device mismatch during projection
+    - Memory allocation failure during in-place operation
+    """
+
+    pass
+
+
+class MoEAbliterationError(AbliterationError):
+    """Exception raised during MoE-specific abliteration.
+
+    Common causes:
+    - Expert routing hook failed to capture activations
+    - Targeted expert not found in layer
+    - Shared expert abliteration failed
+    - Router-aware targeting setup failed
+    """
+
+    pass
+
+
+class ResidualExtractionError(AbliterationError):
+    """Exception raised during residual/hidden state extraction.
+
+    Common causes:
+    - GPU OOM during batch processing
+    - Model forward pass failed
+    - Hidden states not returned by model
+    - Tokenization error for prompts
     """
 
     pass
@@ -341,10 +380,14 @@ HereticError (base)
 │   └── BatchSizeError
 └── AbliterationError
     ├── CircuitAblationError
+    ├── WeightModificationError
+    ├── MoEAbliterationError
+    ├── ResidualExtractionError
     └── ExtractionError
         ├── SupervisedProbeError
         ├── ConceptConeError
-        └── CAAExtractionError
+        ├── CAAExtractionError
+        └── SacredDirectionError
 
-Total: 22 custom exceptions (1 base + 21 specific)
+Total: 25 custom exceptions (1 base + 24 specific)
 """

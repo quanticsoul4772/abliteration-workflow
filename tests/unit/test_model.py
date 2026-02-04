@@ -1128,8 +1128,14 @@ class TestModelIterativeAblation:
 
         mock_model.get_residuals_batched.side_effect = mock_residuals
 
-        # Mock abliterate to do nothing
-        mock_model.abliterate = MagicMock()
+        # Mock abliterate to return stats dict
+        mock_model.abliterate = MagicMock(
+            return_value={
+                "layers_processed": 4,
+                "matrices_modified": 8,
+                "errors_suppressed": 0,
+            }
+        )
 
         parameters = {
             "attn.o_proj": AbliterationParameters(
@@ -1142,7 +1148,7 @@ class TestModelIterativeAblation:
 
         with patch("bruno.model.print"):
             with patch("bruno.model.empty_cache"):
-                rounds, kl_values = Model.abliterate_iterative(
+                rounds, kl_values, stats = Model.abliterate_iterative(
                     mock_model,
                     good_prompts=["good1", "good2"],
                     bad_prompts=["bad1", "bad2"],
@@ -1153,6 +1159,9 @@ class TestModelIterativeAblation:
 
         assert rounds == 2
         assert isinstance(kl_values, list)
+        assert isinstance(stats, dict)
+        assert "rounds_completed" in stats
+        assert "errors_suppressed" in stats
 
     def test_abliterate_iterative_stops_on_low_magnitude(self):
         """Test iterative ablation stops when magnitude is too low."""
@@ -1168,7 +1177,13 @@ class TestModelIterativeAblation:
             base_residuals + 0.001,  # Very similar
         ]
 
-        mock_model.abliterate = MagicMock()
+        mock_model.abliterate = MagicMock(
+            return_value={
+                "layers_processed": 4,
+                "matrices_modified": 8,
+                "errors_suppressed": 0,
+            }
+        )
 
         parameters = {
             "attn.o_proj": AbliterationParameters(
@@ -1181,7 +1196,7 @@ class TestModelIterativeAblation:
 
         with patch("bruno.model.print"):
             with patch("bruno.model.empty_cache"):
-                rounds, _ = Model.abliterate_iterative(
+                rounds, _, stats = Model.abliterate_iterative(
                     mock_model,
                     good_prompts=["good"],
                     bad_prompts=["bad"],
@@ -1192,6 +1207,7 @@ class TestModelIterativeAblation:
 
         # Should stop after 1 round due to low magnitude
         assert rounds == 1
+        assert isinstance(stats, dict)
 
 
 class TestModelMultiDirectionAblation:
@@ -1202,7 +1218,13 @@ class TestModelMultiDirectionAblation:
         from bruno.model import AbliterationParameters, Model
 
         mock_model = MagicMock()
-        mock_model.abliterate = MagicMock()
+        mock_model.abliterate = MagicMock(
+            return_value={
+                "layers_processed": 4,
+                "matrices_modified": 8,
+                "errors_suppressed": 0,
+            }
+        )
 
         # Create multi-direction tensor: (n_layers, n_components, hidden_dim)
         refusal_directions = torch.randn(4, 3, 64)
@@ -1219,7 +1241,7 @@ class TestModelMultiDirectionAblation:
         }
 
         with patch("bruno.model.print"):
-            Model.abliterate_multi_direction(
+            stats = Model.abliterate_multi_direction(
                 mock_model,
                 refusal_directions,
                 direction_weights,
@@ -1228,6 +1250,9 @@ class TestModelMultiDirectionAblation:
 
         # Should have called abliterate twice (skipping 0-weight direction)
         assert mock_model.abliterate.call_count == 2
+        assert isinstance(stats, dict)
+        assert stats["directions_processed"] == 2
+        assert stats["directions_skipped"] == 1
 
     def test_abliterate_multi_direction_scales_weights(self):
         """Test multi-direction ablation scales parameters by weight."""
@@ -1248,6 +1273,11 @@ class TestModelMultiDirectionAblation:
             mpoa_max_scale=2.0,
         ):
             captured_params.append(params)
+            return {
+                "layers_processed": 4,
+                "matrices_modified": 8,
+                "errors_suppressed": 0,
+            }
 
         mock_model.abliterate = capture_abliterate
 
@@ -1264,7 +1294,7 @@ class TestModelMultiDirectionAblation:
         }
 
         with patch("bruno.model.print"):
-            Model.abliterate_multi_direction(
+            stats = Model.abliterate_multi_direction(
                 mock_model,
                 refusal_directions,
                 direction_weights,
@@ -1275,6 +1305,7 @@ class TestModelMultiDirectionAblation:
         assert captured_params[0]["attn.o_proj"].max_weight == 2.0
         # Second call should have max_weight=1.0 (0.5 * 2.0)
         assert captured_params[1]["attn.o_proj"].max_weight == 1.0
+        assert stats["directions_processed"] == 2
 
 
 class TestModelGenerate:

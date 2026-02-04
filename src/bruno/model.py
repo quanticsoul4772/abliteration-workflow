@@ -2,7 +2,6 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import math
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -38,8 +37,11 @@ from .exceptions import (
     ConfigurationError,
     ModelInferenceError,
     ModelLoadError,
+    MoEAbliterationError,
+    ResidualExtractionError,
     SacredDirectionError,
     SupervisedProbeError,
+    WeightModificationError,
 )
 from .logging import get_logger
 from .utils import batchify, empty_cache, print
@@ -438,6 +440,59 @@ class RefusalCircuit:
 
 
 @dataclass
+class MoEExpertActivations:
+    """Tracked expert activations for MoE models.
+
+    Contains information about which experts were activated during inference
+    for a set of prompts. Used for router-aware expert targeting.
+
+    Attributes:
+        layer_expert_counts: Dict mapping layer_idx -> expert_idx -> activation count
+        total_prompts: Number of prompts used for tracking
+        n_experts_per_layer: Number of routed experts per MoE layer
+        top_k: Number of experts activated per token
+    """
+
+    layer_expert_counts: dict[int, dict[int, int]]
+    total_prompts: int
+    n_experts_per_layer: int
+    top_k: int
+
+    def get_expert_frequencies(self, layer_idx: int) -> dict[int, float]:
+        """Get activation frequency (0-1) for each expert at a layer."""
+        if layer_idx not in self.layer_expert_counts:
+            return {}
+        return {
+            expert_idx: count / max(self.total_prompts, 1)
+            for expert_idx, count in self.layer_expert_counts[layer_idx].items()
+        }
+
+    def get_high_activation_experts(
+        self, layer_idx: int, threshold: float = 0.1, top_k: int = 0
+    ) -> list[int]:
+        """Get experts with activation frequency above threshold.
+
+        Args:
+            layer_idx: Layer index
+            threshold: Minimum activation frequency (0-1)
+            top_k: Maximum number of experts to return (0 = no limit)
+
+        Returns:
+            List of expert indices sorted by activation frequency (descending)
+        """
+        freqs = self.get_expert_frequencies(layer_idx)
+        # Filter by threshold and sort by frequency
+        filtered = [(idx, freq) for idx, freq in freqs.items() if freq >= threshold]
+        filtered.sort(key=lambda x: x[1], reverse=True)
+
+        # Apply top_k limit if specified
+        if top_k > 0:
+            filtered = filtered[:top_k]
+
+        return [idx for idx, _ in filtered]
+
+
+@dataclass
 class CircuitAblationResult:
     """Result from circuit-level ablation.
 
@@ -830,10 +885,46 @@ class Model:
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        for component, matrices in self.get_layer_matrices(0).items():
-            print(
-                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
-            )
+
+        # Check multiple layers to detect MoE (layer 0 may be dense in hybrid models)
+        is_moe_hybrid = False
+        moe_layer_idx = None
+        moe_config = None
+        for check_idx in range(min(3, len(self.get_layers()))):
+            matrices = self.get_layer_matrices(check_idx)
+            if matrices.get("mlp.down_proj") and len(matrices["mlp.down_proj"]) > 1:
+                is_moe_hybrid = True
+                moe_layer_idx = check_idx
+                moe_config = self.get_moe_config(check_idx)
+                break
+
+        if is_moe_hybrid:
+            if moe_config:
+                n_experts, top_k = moe_config
+                print(
+                    f"* [bold cyan]MoE Architecture Detected[/]: "
+                    f"{n_experts} routed experts, top-{top_k} routing"
+                )
+            else:
+                print("* [bold cyan]MoE Architecture Detected[/]")
+
+        # Show component info for representative layer
+        sample_idx = moe_layer_idx if moe_layer_idx is not None else 0
+        for component, matrices in self.get_layer_matrices(sample_idx).items():
+            count = len(matrices)
+            if is_moe_hybrid and component == "mlp.down_proj":
+                # Show MoE-specific info
+                dense_count = len(self.get_layer_matrices(0).get("mlp.down_proj", []))
+                has_shared = hasattr(
+                    self.get_layers()[moe_layer_idx].mlp, "shared_experts"
+                )
+                shared_info = " + shared_experts" if has_shared else ""
+                print(
+                    f"  * [bold]{component}[/]: MoE - "
+                    f"[bold]{dense_count}[/] (dense) / [bold]{count}[/] (MoE){shared_info}"
+                )
+            else:
+                print(f"  * [bold]{component}[/]: [bold]{count}[/] matrices per layer")
 
         # Cache abliterable weights in memory for fast reset (avoids reloading from disk)
         # Uses selective layer-wise caching (~55% memory reduction vs full state_dict)
@@ -1101,62 +1192,149 @@ class Model:
             )
 
     def get_layers(self) -> ModuleList:
+        """Get the transformer layers from the model.
+
+        Tries multimodal model structure first, then falls back to text-only.
+
+        Returns:
+            ModuleList of transformer layers
+
+        Raises:
+            ModelInferenceError: If layers cannot be accessed from model
+        """
         # Most multimodal models.
-        with suppress(Exception):
+        try:
             return self.model.model.language_model.layers
+        except (AttributeError, TypeError):
+            pass
 
         # Text-only models.
-        return self.model.model.layers
+        try:
+            return self.model.model.layers
+        except (AttributeError, TypeError) as e:
+            raise ModelInferenceError(
+                f"Cannot access transformer layers from model. "
+                f"Model architecture may be unsupported. Error: {e}"
+            ) from e
 
     def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
+        """Get abliterable weight matrices from a specific layer.
+
+        Extracts attention output projection and MLP down projection weights
+        that can be modified during abliteration.
+
+        Args:
+            layer_index: Index of the layer to extract matrices from
+
+        Returns:
+            Dict mapping component names to lists of weight tensors
+
+        Raises:
+            ModelInferenceError: If required matrices cannot be accessed
+        """
         layer = self.get_layers()[layer_index]
 
-        matrices = {}
+        matrices: dict[str, list[Tensor]] = {}
 
-        def try_add(component: str, matrix: Any):
-            assert torch.is_tensor(matrix)
-
+        def try_add(component: str, matrix: Any) -> bool:
+            """Try to add a matrix, return True if successful."""
+            if not torch.is_tensor(matrix):
+                return False
             if component not in matrices:
                 matrices[component] = []
-
             matrices[component].append(matrix)
+            return True
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        # Attention output projection - required for all models
+        try:
+            try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        except (AttributeError, TypeError) as e:
+            raise ModelInferenceError(
+                f"Cannot access attention output projection (attn.o_proj) at layer {layer_index}. "
+                f"Model architecture may be unsupported. Error: {e}"
+            ) from e
+
+        # Track which MLP architecture patterns we tried and found
+        mlp_found = False
 
         # Most dense models.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj.weight)
+        try:
+            if try_add("mlp.down_proj", layer.mlp.down_proj.weight):
+                mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Expected for MoE models
 
         # Some MoE models (e.g. Qwen3).
-        with suppress(Exception):
+        try:
             for expert in layer.mlp.experts:
-                try_add("mlp.down_proj", expert.down_proj.weight)
+                if try_add("mlp.down_proj", expert.down_proj.weight):
+                    mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Not this architecture
 
         # Phi-3.5-MoE (and possibly others).
-        with suppress(Exception):
+        try:
             for expert in layer.block_sparse_moe.experts:
-                try_add("mlp.down_proj", expert.w2.weight)
+                if try_add("mlp.down_proj", expert.w2.weight):
+                    mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Not this architecture
 
         # gpt-oss MoE.
-        with suppress(Exception):
+        try:
             # The implementation of gpt-oss in Transformers differs from many other MoE models
             # in that it stores the down-projections for all experts in a single 3D tensor,
             # but thanks to PyTorch's broadcasting magic, it all just works anyway.
-            try_add("mlp.down_proj", layer.mlp.experts.down_proj)
+            if try_add("mlp.down_proj", layer.mlp.experts.down_proj):
+                mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Not this architecture
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight)
+        try:
+            if try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight):
+                mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Not this architecture
 
         # Granite MoE Hybrid - MoE layers with experts.
-        with suppress(Exception):
+        try:
             for expert in layer.moe.experts:
-                try_add("mlp.down_proj", expert.output_linear.weight)
+                if try_add("mlp.down_proj", expert.output_linear.weight):
+                    mlp_found = True
+        except (AttributeError, TypeError):
+            pass  # Not this architecture
+
+        # DeepSeekV3/Moonlight shared experts (always active for every token).
+        # These are critical for MoE abliteration since they process ALL tokens.
+        if self.settings.use_moe_shared_experts:
+            try:
+                if try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj.weight):
+                    mlp_found = True
+            except (AttributeError, TypeError) as e:
+                # Log but don't fail - shared experts are optional enhancement
+                record_suppressed_error(
+                    error=e,
+                    context="get_layer_matrices_shared_experts",
+                    module="model",
+                    severity="info",
+                    details={
+                        "layer_index": layer_index,
+                        "reason": "Shared experts not found, may not be DeepSeekV3/Moonlight",
+                    },
+                )
 
         # We need at least one MLP down-projection.
-        assert matrices["mlp.down_proj"]
+        if (
+            not mlp_found
+            or "mlp.down_proj" not in matrices
+            or not matrices["mlp.down_proj"]
+        ):
+            raise ModelInferenceError(
+                f"No MLP down-projection weights found at layer {layer_index}. "
+                f"Model architecture may be unsupported. "
+                f"Tried: dense MLP, Qwen3 MoE, Phi-3.5 MoE, gpt-oss MoE, Granite MoE."
+            )
 
         return matrices
 
@@ -1208,7 +1386,7 @@ class Model:
         mpoa_norm_mode: str = "row",
         mpoa_min_scale: float = 0.5,
         mpoa_max_scale: float = 2.0,
-    ):
+    ) -> dict[str, int]:
         """Abliterate the model by projecting out refusal directions.
 
         Args:
@@ -1220,7 +1398,35 @@ class Model:
             mpoa_norm_mode: Norm preservation mode for MPOA ('row', 'column', 'frobenius')
             mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
             mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
+
+        Returns:
+            Dict with abliteration statistics:
+                - 'layers_processed': Number of layers that had weights modified
+                - 'matrices_modified': Total number of weight matrices modified
+                - 'errors_suppressed': Number of non-fatal errors encountered
+
+        Raises:
+            WeightModificationError: If critical error occurs during weight modification
         """
+        stats = {
+            "layers_processed": 0,
+            "matrices_modified": 0,
+            "errors_suppressed": 0,
+        }
+
+        # Validate inputs
+        if refusal_directions is None or refusal_directions.numel() == 0:
+            raise WeightModificationError(
+                "Refusal directions tensor is empty or None. "
+                "Direction extraction may have failed."
+            )
+
+        if not parameters:
+            raise WeightModificationError(
+                "No abliteration parameters provided. "
+                "At least one component must have parameters."
+            )
+
         if direction_index is None:
             refusal_direction = None
             global_projector = None
@@ -1228,6 +1434,14 @@ class Model:
             # The index must be shifted by 1 because the first element
             # of refusal_directions is the direction for the embeddings.
             weight, index = math.modf(direction_index + 1)
+
+            # Validate direction index bounds
+            if int(index) + 1 >= len(refusal_directions):
+                raise WeightModificationError(
+                    f"Direction index {direction_index} out of bounds. "
+                    f"Refusal directions has {len(refusal_directions)} entries."
+                )
+
             refusal_direction = F.normalize(
                 refusal_directions[int(index)].lerp(
                     refusal_directions[int(index) + 1],
@@ -1236,6 +1450,17 @@ class Model:
                 p=2,
                 dim=0,
             )
+
+            # Check for NaN/Inf in direction
+            if (
+                torch.isnan(refusal_direction).any()
+                or torch.isinf(refusal_direction).any()
+            ):
+                raise WeightModificationError(
+                    f"Refusal direction at index {direction_index} contains NaN or Inf values. "
+                    f"Direction extraction may have produced invalid results."
+                )
+
             # Pre-compute projector for global direction (reused across all layers)
             global_projector = torch.outer(
                 refusal_direction,
@@ -1264,13 +1489,24 @@ class Model:
                 except torch.cuda.OutOfMemoryError:
                     # OOM during transfer - use CPU fallback
                     empty_cache()
+                    record_suppressed_error(
+                        error=None,
+                        context="abliterate_projector_transfer",
+                        module="model",
+                        severity="warning",
+                        details={
+                            "device": str(device),
+                            "reason": "GPU OOM, using CPU fallback",
+                        },
+                    )
                     logger.warning(
                         f"GPU OOM transferring projector to {device}. Using CPU fallback."
                     )
                     device_projectors_cache[device] = projector.to("cpu")
+                    stats["errors_suppressed"] += 1
                 except RuntimeError as e:
                     if "CUDA" in str(e) or "cuda" in str(e):
-                        raise ModelInferenceError(
+                        raise WeightModificationError(
                             f"CUDA error transferring projector to {device}: {e}"
                         ) from e
                     raise
@@ -1290,6 +1526,8 @@ class Model:
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(num_layers):
+            layer_modified = False
+
             # Compute per-layer projector once per layer (outside component loop)
             if global_projector is not None:
                 projector = global_projector
@@ -1298,6 +1536,28 @@ class Model:
                 # The index must be shifted by 1 because the first element
                 # of refusal_directions is the direction for the embeddings.
                 layer_refusal_direction = refusal_directions[layer_index + 1]
+
+                # Check for NaN/Inf in per-layer direction
+                if (
+                    torch.isnan(layer_refusal_direction).any()
+                    or torch.isinf(layer_refusal_direction).any()
+                ):
+                    record_suppressed_error(
+                        error=None,
+                        context="abliterate_layer_direction",
+                        module="model",
+                        severity="warning",
+                        details={
+                            "layer_index": layer_index,
+                            "reason": "Layer direction contains NaN/Inf, skipping layer",
+                        },
+                    )
+                    logger.warning(
+                        f"Skipping layer {layer_index}: direction contains NaN/Inf"
+                    )
+                    stats["errors_suppressed"] += 1
+                    continue
+
                 projector = torch.outer(
                     layer_refusal_direction,
                     layer_refusal_direction,
@@ -1306,6 +1566,20 @@ class Model:
                 device_projectors_cache.clear()
 
             for component, matrices in layer_matrices_cache[layer_index].items():
+                if component not in parameters:
+                    record_suppressed_error(
+                        error=None,
+                        context="abliterate_missing_params",
+                        module="model",
+                        severity="info",
+                        details={
+                            "layer_index": layer_index,
+                            "component": component,
+                            "reason": "No parameters for component, skipping",
+                        },
+                    )
+                    continue
+
                 params = parameters[component]
 
                 distance = abs(layer_index - params.max_weight_position)
@@ -1327,24 +1601,90 @@ class Model:
                 )
                 weight = weight * layer_multiplier
 
-                for matrix in matrices:
-                    # Reuse cached projector per device to prevent memory accumulation
-                    device_projector = get_device_projector(projector, matrix.device)
-
-                    if use_mpoa:
-                        # MPOA: Norm-Preserving Biprojected Abliteration
-                        # Preserve norms to prevent capability degradation
-                        self._apply_mpoa_projection(
-                            matrix,
-                            device_projector,
-                            weight,
-                            mpoa_norm_mode,
-                            mpoa_min_scale,
-                            mpoa_max_scale,
+                for matrix_idx, matrix in enumerate(matrices):
+                    try:
+                        # Reuse cached projector per device to prevent memory accumulation
+                        device_projector = get_device_projector(
+                            projector, matrix.device
                         )
-                    else:
-                        # Standard abliteration: in-place subtraction
-                        matrix.sub_(weight * (device_projector @ matrix))
+
+                        if use_mpoa:
+                            # MPOA: Norm-Preserving Biprojected Abliteration
+                            # Preserve norms to prevent capability degradation
+                            self._apply_mpoa_projection(
+                                matrix,
+                                device_projector,
+                                weight,
+                                mpoa_norm_mode,
+                                mpoa_min_scale,
+                                mpoa_max_scale,
+                            )
+                        else:
+                            # Standard abliteration: in-place subtraction
+                            matrix.sub_(weight * (device_projector @ matrix))
+
+                        # Verify no NaN/Inf introduced
+                        if torch.isnan(matrix).any() or torch.isinf(matrix).any():
+                            record_suppressed_error(
+                                error=None,
+                                context="abliterate_nan_inf_detected",
+                                module="model",
+                                severity="error",
+                                details={
+                                    "layer_index": layer_index,
+                                    "component": component,
+                                    "matrix_idx": matrix_idx,
+                                    "weight": weight,
+                                    "reason": "NaN/Inf values detected after abliteration",
+                                },
+                            )
+                            logger.error(
+                                f"NaN/Inf detected in {component} at layer {layer_index}, matrix {matrix_idx} after abliteration"
+                            )
+                            stats["errors_suppressed"] += 1
+                        else:
+                            stats["matrices_modified"] += 1
+                            layer_modified = True
+
+                    except torch.cuda.OutOfMemoryError as e:
+                        record_suppressed_error(
+                            error=e,
+                            context="abliterate_matrix_oom",
+                            module="model",
+                            severity="error",
+                            details={
+                                "layer_index": layer_index,
+                                "component": component,
+                                "matrix_idx": matrix_idx,
+                            },
+                            include_traceback=True,
+                        )
+                        empty_cache()
+                        stats["errors_suppressed"] += 1
+                        # Continue to next matrix - partial abliteration is better than none
+                    except RuntimeError as e:
+                        error_msg = str(e).lower()
+                        if "shape" in error_msg or "size" in error_msg:
+                            raise WeightModificationError(
+                                f"Shape mismatch during abliteration at layer {layer_index}, "
+                                f"component '{component}', matrix {matrix_idx}: {e}"
+                            ) from e
+                        record_suppressed_error(
+                            error=e,
+                            context="abliterate_matrix_error",
+                            module="model",
+                            severity="error",
+                            details={
+                                "layer_index": layer_index,
+                                "component": component,
+                                "matrix_idx": matrix_idx,
+                            },
+                            include_traceback=True,
+                        )
+                        stats["errors_suppressed"] += 1
+
+            if layer_modified:
+                stats["layers_processed"] += 1
 
             # Clear CUDA cache periodically to prevent memory fragmentation
             if layer_index % CACHE_CLEAR_INTERVAL == (CACHE_CLEAR_INTERVAL - 1):
@@ -1352,6 +1692,23 @@ class Model:
 
         # Clear the device projector cache to prevent memory leaks
         device_projectors_cache.clear()
+
+        # Log summary
+        if stats["errors_suppressed"] > 0:
+            logger.warning(
+                "Abliteration completed with errors",
+                layers_processed=stats["layers_processed"],
+                matrices_modified=stats["matrices_modified"],
+                errors_suppressed=stats["errors_suppressed"],
+            )
+        else:
+            logger.info(
+                "Abliteration completed successfully",
+                layers_processed=stats["layers_processed"],
+                matrices_modified=stats["matrices_modified"],
+            )
+
+        return stats
 
     def _apply_mpoa_projection(
         self,
@@ -1488,38 +1845,173 @@ class Model:
         return responses
 
     def get_residuals(self, prompts: list[str]) -> Tensor:
-        # We only generate one token, and we return the residual vectors
-        # at that token position, for each prompt and layer.
-        _, outputs = self.generate(
-            prompts,
-            max_new_tokens=1,
-            output_hidden_states=True,
-            return_dict_in_generate=True,
-        )
+        """Extract residual (hidden state) vectors for prompts.
+
+        Generates one token and returns the hidden states at that position
+        for each prompt and layer.
+
+        Args:
+            prompts: List of prompts to extract residuals from
+
+        Returns:
+            Tensor of shape (n_prompts, n_layers, hidden_dim)
+
+        Raises:
+            ResidualExtractionError: If hidden state extraction fails
+        """
+        if not prompts:
+            raise ResidualExtractionError(
+                "Cannot extract residuals from empty prompt list."
+            )
+
+        try:
+            # We only generate one token, and we return the residual vectors
+            # at that token position, for each prompt and layer.
+            _, outputs = self.generate(
+                prompts,
+                max_new_tokens=1,
+                output_hidden_states=True,
+                return_dict_in_generate=True,
+            )
+        except torch.cuda.OutOfMemoryError as e:
+            raise ResidualExtractionError(
+                f"GPU out of memory during residual extraction for {len(prompts)} prompts. "
+                f"Try reducing batch_size or using a smaller model."
+            ) from e
+        except RuntimeError as e:
+            error_msg = str(e).lower()
+            if "out of memory" in error_msg or "oom" in error_msg:
+                raise ResidualExtractionError(
+                    f"Out of memory during residual extraction: {e}"
+                ) from e
+            raise ResidualExtractionError(
+                f"Runtime error during residual extraction: {e}"
+            ) from e
+
+        # Validate hidden states were returned
+        if not hasattr(outputs, "hidden_states") or outputs.hidden_states is None:
+            raise ResidualExtractionError(
+                "Model did not return hidden states. "
+                "The model may not support output_hidden_states=True."
+            )
+
+        if len(outputs.hidden_states) == 0:
+            raise ResidualExtractionError(
+                "Model returned empty hidden_states. No tokens were generated."
+            )
 
         # Hidden states for the first (only) generated token.
         hidden_states = outputs.hidden_states[0]
 
-        # The returned tensor has shape (prompt, layer, component).
-        residuals = torch.stack(
-            # layer_hidden_states has shape (prompt, position, component),
-            # so this extracts the hidden states at the end of each prompt,
-            # and stacks them up over the layers.
-            [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
-            dim=1,
-        )
+        if not hidden_states:
+            raise ResidualExtractionError("Hidden states for generated token is empty.")
+
+        try:
+            # The returned tensor has shape (prompt, layer, component).
+            residuals = torch.stack(
+                # layer_hidden_states has shape (prompt, position, component),
+                # so this extracts the hidden states at the end of each prompt,
+                # and stacks them up over the layers.
+                [
+                    layer_hidden_states[:, -1, :]
+                    for layer_hidden_states in hidden_states
+                ],
+                dim=1,
+            )
+        except (IndexError, RuntimeError) as e:
+            raise ResidualExtractionError(
+                f"Failed to stack hidden states into residual tensor: {e}"
+            ) from e
+
+        # Verify no NaN/Inf in residuals
+        if torch.isnan(residuals).any() or torch.isinf(residuals).any():
+            nan_count = torch.isnan(residuals).sum().item()
+            inf_count = torch.isinf(residuals).sum().item()
+            record_suppressed_error(
+                error=None,
+                context="get_residuals_nan_inf",
+                module="model",
+                severity="warning",
+                details={
+                    "n_prompts": len(prompts),
+                    "nan_count": nan_count,
+                    "inf_count": inf_count,
+                    "reason": "Residuals contain NaN/Inf values",
+                },
+            )
+            logger.warning(
+                f"Residuals contain {nan_count} NaN and {inf_count} Inf values"
+            )
 
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.
         return residuals.to(torch.float32)
 
     def get_residuals_batched(self, prompts: list[str]) -> Tensor:
+        """Extract residuals for prompts in batches.
+
+        Args:
+            prompts: List of prompts to extract residuals from
+
+        Returns:
+            Tensor of shape (n_prompts, n_layers, hidden_dim)
+
+        Raises:
+            ResidualExtractionError: If extraction fails for any batch
+        """
+        if not prompts:
+            raise ResidualExtractionError(
+                "Cannot extract residuals from empty prompt list."
+            )
+
         residuals = []
+        failed_batches = 0
 
-        for batch in batchify(prompts, self.settings.batch_size):
-            residuals.append(self.get_residuals(batch))
+        for batch_idx, batch in enumerate(batchify(prompts, self.settings.batch_size)):
+            try:
+                residuals.append(self.get_residuals(batch))
+            except ResidualExtractionError:
+                # Re-raise residual extraction errors directly
+                raise
+            except torch.cuda.OutOfMemoryError as e:
+                failed_batches += 1
+                if failed_batches > 3:
+                    raise ResidualExtractionError(
+                        f"GPU OOM during residual extraction after {failed_batches} failed batches. "
+                        f"Try reducing batch_size (current: {self.settings.batch_size})."
+                    ) from e
+                record_suppressed_error(
+                    error=e,
+                    context="get_residuals_batched_oom",
+                    module="model",
+                    severity="warning",
+                    details={
+                        "batch_idx": batch_idx,
+                        "batch_size": len(batch),
+                        "failed_batches": failed_batches,
+                    },
+                )
+                empty_cache()
+                # Retry this batch after clearing cache
+                try:
+                    residuals.append(self.get_residuals(batch))
+                except torch.cuda.OutOfMemoryError as retry_e:
+                    raise ResidualExtractionError(
+                        f"GPU OOM during residual extraction at batch {batch_idx} even after cache clear. "
+                        f"Batch size: {len(batch)}. Try reducing batch_size."
+                    ) from retry_e
 
-        return torch.cat(residuals, dim=0)
+        if not residuals:
+            raise ResidualExtractionError(
+                "No residuals extracted. All batches may have failed."
+            )
+
+        try:
+            return torch.cat(residuals, dim=0)
+        except RuntimeError as e:
+            raise ResidualExtractionError(
+                f"Failed to concatenate residual batches: {e}"
+            ) from e
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
@@ -1556,7 +2048,7 @@ class Model:
 
         for batch in batchify(prompts, self.settings.batch_size):
             batch_logprobs = self.get_logprobs(batch, n_tokens=n_tokens)
-            
+
             # Handle variable-length generation when n_tokens > 1
             # Some batches may generate fewer tokens due to EOS
             if n_tokens > 1 and batch_logprobs.dim() == 3:
@@ -1565,7 +2057,11 @@ class Model:
                     # Pad with very negative log-prob (near-zero probability)
                     # Using -100.0 instead of 0.0 since these are log probabilities
                     padding = torch.full(
-                        (batch_logprobs.shape[0], n_tokens - actual_tokens, batch_logprobs.shape[2]),
+                        (
+                            batch_logprobs.shape[0],
+                            n_tokens - actual_tokens,
+                            batch_logprobs.shape[2],
+                        ),
                         fill_value=-100.0,
                         device=batch_logprobs.device,
                         dtype=batch_logprobs.dtype,
@@ -1574,7 +2070,7 @@ class Model:
                 elif actual_tokens > n_tokens:
                     # Truncate to expected n_tokens
                     batch_logprobs = batch_logprobs[:, :n_tokens, :]
-            
+
             logprobs.append(batch_logprobs)
 
         return torch.cat(logprobs, dim=0)
@@ -1981,7 +2477,7 @@ class Model:
         mpoa_norm_mode: str = "row",
         mpoa_min_scale: float = 0.5,
         mpoa_max_scale: float = 2.0,
-    ) -> tuple[int, list[float]]:
+    ) -> tuple[int, list[float], dict[str, int]]:
         """Iteratively extract and ablate refusal directions.
 
         CAUTION: This is experimental. Re-extracting from ablated models
@@ -2001,16 +2497,35 @@ class Model:
             mpoa_norm_mode: Norm preservation mode for MPOA
 
         Returns:
-            Tuple of (rounds_performed, list of KL values per round)
+            Tuple of (rounds_performed, list of KL values per round, aggregated stats)
         """
         kl_values = []
+        aggregated_stats = {
+            "rounds_completed": 0,
+            "total_layers_processed": 0,
+            "total_matrices_modified": 0,
+            "errors_suppressed": 0,
+        }
 
         for round_idx in range(max_rounds):
             print(f"  * Iterative ablation round {round_idx + 1}/{max_rounds}...")
 
             # Extract residual directions from current model state
-            good_residuals = self.get_residuals_batched(good_prompts)
-            bad_residuals = self.get_residuals_batched(bad_prompts)
+            try:
+                good_residuals = self.get_residuals_batched(good_prompts)
+                bad_residuals = self.get_residuals_batched(bad_prompts)
+            except ResidualExtractionError as e:
+                record_suppressed_error(
+                    error=e,
+                    context="abliterate_iterative_residuals",
+                    module="model",
+                    severity="error",
+                    details={"round_idx": round_idx},
+                    include_traceback=True,
+                )
+                aggregated_stats["errors_suppressed"] += 1
+                logger.error(f"Residual extraction failed at round {round_idx}: {e}")
+                break
 
             # Compute raw difference BEFORE normalization for magnitude check
             raw_difference = bad_residuals.mean(dim=0) - good_residuals.mean(dim=0)
@@ -2029,16 +2544,39 @@ class Model:
             refusal_directions = F.normalize(raw_difference, p=2, dim=1)
 
             # Ablate this round's directions (per-layer mode)
-            self.abliterate(
-                refusal_directions,
-                None,
-                parameters,
-                layer_profiles,
-                use_mpoa=use_mpoa,
-                mpoa_norm_mode=mpoa_norm_mode,
-                mpoa_min_scale=mpoa_min_scale,
-                mpoa_max_scale=mpoa_max_scale,
-            )
+            try:
+                round_stats = self.abliterate(
+                    refusal_directions,
+                    None,
+                    parameters,
+                    layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
+                )
+                aggregated_stats["total_layers_processed"] += round_stats.get(
+                    "layers_processed", 0
+                )
+                aggregated_stats["total_matrices_modified"] += round_stats.get(
+                    "matrices_modified", 0
+                )
+                aggregated_stats["errors_suppressed"] += round_stats.get(
+                    "errors_suppressed", 0
+                )
+                aggregated_stats["rounds_completed"] += 1
+            except WeightModificationError as e:
+                record_suppressed_error(
+                    error=e,
+                    context="abliterate_iterative_ablation",
+                    module="model",
+                    severity="error",
+                    details={"round_idx": round_idx},
+                    include_traceback=True,
+                )
+                aggregated_stats["errors_suppressed"] += 1
+                logger.error(f"Abliteration failed at round {round_idx}: {e}")
+                break
 
             # Capability guard - measure KL after each round
             if (
@@ -2046,27 +2584,51 @@ class Model:
                 and base_logprobs is not None
                 and kl_check_prompts is not None
             ):
-                current_logprobs = self.get_logprobs_batched(kl_check_prompts)
-                round_kl = F.kl_div(
-                    current_logprobs,
-                    base_logprobs,
-                    reduction="batchmean",
-                    log_target=True,
-                ).item()
-                kl_values.append(round_kl)
-                print(f"    * Round KL: {round_kl:.3f}")
+                try:
+                    current_logprobs = self.get_logprobs_batched(kl_check_prompts)
+                    round_kl = F.kl_div(
+                        current_logprobs,
+                        base_logprobs,
+                        reduction="batchmean",
+                        log_target=True,
+                    ).item()
+                    kl_values.append(round_kl)
+                    print(f"    * Round KL: {round_kl:.3f}")
 
-                if round_kl > max_kl_per_round:
-                    print(
-                        f"    * Round KL exceeds limit ({max_kl_per_round}), stopping"
+                    if round_kl > max_kl_per_round:
+                        print(
+                            f"    * Round KL exceeds limit ({max_kl_per_round}), stopping"
+                        )
+                        break
+                except Exception as e:
+                    record_suppressed_error(
+                        error=e,
+                        context="abliterate_iterative_kl_check",
+                        module="model",
+                        severity="warning",
+                        details={"round_idx": round_idx},
                     )
-                    break
+                    aggregated_stats["errors_suppressed"] += 1
 
             # Clean up
             del good_residuals, bad_residuals, raw_difference
             empty_cache()
 
-        return round_idx + 1, kl_values
+        # Log summary
+        if aggregated_stats["errors_suppressed"] > 0:
+            logger.warning(
+                "Iterative ablation completed with errors",
+                rounds_completed=aggregated_stats["rounds_completed"],
+                errors_suppressed=aggregated_stats["errors_suppressed"],
+            )
+        else:
+            logger.info(
+                "Iterative ablation completed",
+                rounds_completed=aggregated_stats["rounds_completed"],
+                total_matrices_modified=aggregated_stats["total_matrices_modified"],
+            )
+
+        return round_idx + 1, kl_values, aggregated_stats
 
     def abliterate_multi_direction(
         self,
@@ -2078,7 +2640,7 @@ class Model:
         mpoa_norm_mode: str = "row",
         mpoa_min_scale: float = 0.5,
         mpoa_max_scale: float = 2.0,
-    ):
+    ) -> dict[str, int]:
         """Abliterate multiple refusal directions with configurable weights.
 
         Args:
@@ -2090,12 +2652,29 @@ class Model:
             mpoa_norm_mode: Norm preservation mode for MPOA
             mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
             mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
+
+        Returns:
+            Dict with ablation statistics:
+                - 'directions_processed': Number of directions abliterated
+                - 'directions_skipped': Number of directions skipped (weight <= 0)
+                - 'total_layers_processed': Total layers across all directions
+                - 'total_matrices_modified': Total matrices across all directions
+                - 'errors_suppressed': Number of non-fatal errors encountered
         """
+        stats = {
+            "directions_processed": 0,
+            "directions_skipped": 0,
+            "total_layers_processed": 0,
+            "total_matrices_modified": 0,
+            "errors_suppressed": 0,
+        }
+
         n_components = refusal_directions.shape[1]
 
         for component_idx in range(min(n_components, len(direction_weights))):
             weight_multiplier = direction_weights[component_idx]
             if weight_multiplier <= 0:
+                stats["directions_skipped"] += 1
                 continue
 
             print(
@@ -2116,16 +2695,62 @@ class Model:
                 )
 
             # Apply abliteration with scaled weights (per-layer mode)
-            self.abliterate(
-                single_direction,
-                None,
-                scaled_parameters,
-                layer_profiles,
-                use_mpoa=use_mpoa,
-                mpoa_norm_mode=mpoa_norm_mode,
-                mpoa_min_scale=mpoa_min_scale,
-                mpoa_max_scale=mpoa_max_scale,
+            try:
+                direction_stats = self.abliterate(
+                    single_direction,
+                    None,
+                    scaled_parameters,
+                    layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
+                )
+                stats["directions_processed"] += 1
+                stats["total_layers_processed"] += direction_stats.get(
+                    "layers_processed", 0
+                )
+                stats["total_matrices_modified"] += direction_stats.get(
+                    "matrices_modified", 0
+                )
+                stats["errors_suppressed"] += direction_stats.get(
+                    "errors_suppressed", 0
+                )
+            except WeightModificationError as e:
+                record_suppressed_error(
+                    error=e,
+                    context="abliterate_multi_direction",
+                    module="model",
+                    severity="error",
+                    details={
+                        "component_idx": component_idx,
+                        "weight_multiplier": weight_multiplier,
+                    },
+                    include_traceback=True,
+                )
+                stats["errors_suppressed"] += 1
+                logger.error(
+                    f"Multi-direction ablation failed at component {component_idx}: {e}"
+                )
+                # Continue with remaining directions
+
+        # Log summary
+        if stats["errors_suppressed"] > 0:
+            logger.warning(
+                "Multi-direction ablation completed with errors",
+                directions_processed=stats["directions_processed"],
+                directions_skipped=stats["directions_skipped"],
+                errors_suppressed=stats["errors_suppressed"],
             )
+        else:
+            logger.info(
+                "Multi-direction ablation completed",
+                directions_processed=stats["directions_processed"],
+                directions_skipped=stats["directions_skipped"],
+                total_matrices_modified=stats["total_matrices_modified"],
+            )
+
+        return stats
 
     # Phase 2: Supervised Refusal Probing
     def get_refusal_directions_supervised(
@@ -2541,7 +3166,7 @@ class Model:
         mpoa_norm_mode: str = "row",
         mpoa_min_scale: float = 0.5,
         mpoa_max_scale: float = 2.0,
-    ) -> None:
+    ) -> dict[str, int]:
         """Abliterate using concept cone-specific directions.
 
         Applies ablation for each concept cone's primary direction,
@@ -2557,11 +3182,25 @@ class Model:
             mpoa_norm_mode: Norm preservation mode for MPOA
             mpoa_min_scale: Minimum scaling factor for MPOA (default 0.5)
             mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
+
+        Returns:
+            Dict with ablation statistics:
+                - 'cones_processed': Number of cones abliterated
+                - 'total_layers_processed': Total layers across all cones
+                - 'total_matrices_modified': Total matrices across all cones
+                - 'errors_suppressed': Number of non-fatal errors encountered
         """
+        stats = {
+            "cones_processed": 0,
+            "total_layers_processed": 0,
+            "total_matrices_modified": 0,
+            "errors_suppressed": 0,
+        }
+
         if not cone_result.cones:
             print("[yellow]Warning: No concept cones to abliterate.[/yellow]")
             logger.warning("Concept cone ablation skipped: no cones extracted")
-            return
+            return stats
 
         total_size = sum(cone.size for cone in cone_result.cones)
 
@@ -2594,31 +3233,83 @@ class Model:
 
             # Use the primary direction for this cone
             # cone.directions has shape (n_layers, n_components, hidden_dim)
-            if direction_weights is None:
-                # Use first direction only
-                primary_direction = cone.directions[:, 0, :]
-                self.abliterate(
-                    primary_direction,
-                    None,
-                    scaled_parameters,
-                    layer_profiles,
-                    use_mpoa=use_mpoa,
-                    mpoa_norm_mode=mpoa_norm_mode,
-                    mpoa_min_scale=mpoa_min_scale,
-                    mpoa_max_scale=mpoa_max_scale,
+            try:
+                if direction_weights is None:
+                    # Use first direction only
+                    primary_direction = cone.directions[:, 0, :]
+                    cone_stats = self.abliterate(
+                        primary_direction,
+                        None,
+                        scaled_parameters,
+                        layer_profiles,
+                        use_mpoa=use_mpoa,
+                        mpoa_norm_mode=mpoa_norm_mode,
+                        mpoa_min_scale=mpoa_min_scale,
+                        mpoa_max_scale=mpoa_max_scale,
+                    )
+                    stats["total_layers_processed"] += cone_stats.get(
+                        "layers_processed", 0
+                    )
+                    stats["total_matrices_modified"] += cone_stats.get(
+                        "matrices_modified", 0
+                    )
+                    stats["errors_suppressed"] += cone_stats.get("errors_suppressed", 0)
+                else:
+                    # Use multiple directions with weights
+                    multi_stats = self.abliterate_multi_direction(
+                        cone.directions,
+                        direction_weights,
+                        scaled_parameters,
+                        layer_profiles,
+                        use_mpoa=use_mpoa,
+                        mpoa_norm_mode=mpoa_norm_mode,
+                        mpoa_min_scale=mpoa_min_scale,
+                        mpoa_max_scale=mpoa_max_scale,
+                    )
+                    stats["total_layers_processed"] += multi_stats.get(
+                        "total_layers_processed", 0
+                    )
+                    stats["total_matrices_modified"] += multi_stats.get(
+                        "total_matrices_modified", 0
+                    )
+                    stats["errors_suppressed"] += multi_stats.get(
+                        "errors_suppressed", 0
+                    )
+                stats["cones_processed"] += 1
+            except (WeightModificationError, Exception) as e:
+                record_suppressed_error(
+                    error=e,
+                    context="abliterate_concept_cones",
+                    module="model",
+                    severity="error",
+                    details={
+                        "cluster_id": cone.cluster_id,
+                        "cone_size": cone.size,
+                        "cone_weight": cone_weight,
+                    },
+                    include_traceback=True,
                 )
-            else:
-                # Use multiple directions with weights
-                self.abliterate_multi_direction(
-                    cone.directions,
-                    direction_weights,
-                    scaled_parameters,
-                    layer_profiles,
-                    use_mpoa=use_mpoa,
-                    mpoa_norm_mode=mpoa_norm_mode,
-                    mpoa_min_scale=mpoa_min_scale,
-                    mpoa_max_scale=mpoa_max_scale,
+                stats["errors_suppressed"] += 1
+                logger.error(
+                    f"Concept cone ablation failed for cone {cone.cluster_id}: {e}"
                 )
+                # Continue with remaining cones
+
+        # Log summary
+        if stats["errors_suppressed"] > 0:
+            logger.warning(
+                "Concept cone ablation completed with errors",
+                cones_processed=stats["cones_processed"],
+                errors_suppressed=stats["errors_suppressed"],
+            )
+        else:
+            logger.info(
+                "Concept cone ablation completed",
+                cones_processed=stats["cones_processed"],
+                total_matrices_modified=stats["total_matrices_modified"],
+            )
+
+        return stats
 
     def get_refusal_directions_ensemble(
         self,
@@ -2726,7 +3417,7 @@ class Model:
         mpoa_norm_mode: str = "row",
         mpoa_min_scale: float = 0.5,
         mpoa_max_scale: float = 2.0,
-    ) -> bool:
+    ) -> tuple[bool, dict[str, int]]:
         """Combined ablation: remove refusal direction + add compliance direction.
 
         This implements Contrastive Activation Addition (CAA) which:
@@ -2752,8 +3443,17 @@ class Model:
             mpoa_max_scale: Maximum scaling factor for MPOA (default 2.0)
 
         Returns:
-            True if CAA addition was applied, False if skipped due to high overlap
+            Tuple of (caa_applied, stats):
+                - caa_applied: True if CAA addition was applied, False if skipped
+                - stats: Dict with ablation statistics
         """
+        stats = {
+            "removal_layers_processed": 0,
+            "removal_matrices_modified": 0,
+            "addition_layers_processed": 0,
+            "errors_suppressed": 0,
+        }
+
         # Handle both single-direction and multi-direction refusal tensors
         if refusal_directions.dim() == 2:
             # Single direction: (n_layers, hidden_dim)
@@ -2806,30 +3506,48 @@ class Model:
             scaled_parameters = parameters
 
         # Handle multi-direction vs single-direction
-        if refusal_directions.dim() == 3:
-            # Multi-direction: use first component (primary direction)
-            self.abliterate(
-                refusal_directions[:, 0, :],
-                None,  # Per-layer mode
-                scaled_parameters,
-                layer_profiles=layer_profiles,
-                use_mpoa=use_mpoa,
-                mpoa_norm_mode=mpoa_norm_mode,
-                mpoa_min_scale=mpoa_min_scale,
-                mpoa_max_scale=mpoa_max_scale,
+        try:
+            if refusal_directions.dim() == 3:
+                # Multi-direction: use first component (primary direction)
+                removal_stats = self.abliterate(
+                    refusal_directions[:, 0, :],
+                    None,  # Per-layer mode
+                    scaled_parameters,
+                    layer_profiles=layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
+                )
+            else:
+                # Single direction
+                removal_stats = self.abliterate(
+                    refusal_directions,
+                    None,  # Per-layer mode
+                    scaled_parameters,
+                    layer_profiles=layer_profiles,
+                    use_mpoa=use_mpoa,
+                    mpoa_norm_mode=mpoa_norm_mode,
+                    mpoa_min_scale=mpoa_min_scale,
+                    mpoa_max_scale=mpoa_max_scale,
+                )
+            stats["removal_layers_processed"] = removal_stats.get("layers_processed", 0)
+            stats["removal_matrices_modified"] = removal_stats.get(
+                "matrices_modified", 0
             )
-        else:
-            # Single direction
-            self.abliterate(
-                refusal_directions,
-                None,  # Per-layer mode
-                scaled_parameters,
-                layer_profiles=layer_profiles,
-                use_mpoa=use_mpoa,
-                mpoa_norm_mode=mpoa_norm_mode,
-                mpoa_min_scale=mpoa_min_scale,
-                mpoa_max_scale=mpoa_max_scale,
+            stats["errors_suppressed"] += removal_stats.get("errors_suppressed", 0)
+        except WeightModificationError as e:
+            record_suppressed_error(
+                error=e,
+                context="abliterate_with_caa_removal",
+                module="model",
+                severity="error",
+                details={"removal_strength": removal_strength},
+                include_traceback=True,
             )
+            stats["errors_suppressed"] += 1
+            logger.error(f"CAA refusal removal failed: {e}")
+            # Continue to attempt compliance addition if overlap is acceptable
 
         # Step 2: Add compliance direction (only if overlap is acceptable)
         if caa_applied:
@@ -2840,37 +3558,105 @@ class Model:
             num_layers = len(self.get_layers())
 
             for layer_idx in range(num_layers):
-                layer = self.get_layers()[layer_idx]
+                try:
+                    layer = self.get_layers()[layer_idx]
 
-                # Get layer-specific compliance direction
-                compliance_dir = compliance_direction[layer_idx]
+                    # Get layer-specific compliance direction
+                    compliance_dir = compliance_direction[layer_idx]
 
-                # Compute projector for this direction
-                projector = torch.outer(
-                    compliance_dir,
-                    compliance_dir,
-                ).to(self.model.dtype)
+                    # Check for NaN/Inf
+                    if (
+                        torch.isnan(compliance_dir).any()
+                        or torch.isinf(compliance_dir).any()
+                    ):
+                        record_suppressed_error(
+                            error=None,
+                            context="abliterate_with_caa_nan_direction",
+                            module="model",
+                            severity="warning",
+                            details={"layer_idx": layer_idx},
+                        )
+                        stats["errors_suppressed"] += 1
+                        continue
 
-                # Apply layer multiplier if profiles are provided
-                layer_multiplier = self.get_layer_multiplier(
-                    layer_idx, num_layers, layer_profiles
-                )
-                effective_strength = addition_strength * layer_multiplier
+                    # Compute projector for this direction
+                    projector = torch.outer(
+                        compliance_dir,
+                        compliance_dir,
+                    ).to(self.model.dtype)
 
-                # Add to attention output projection
-                # This encourages the model to produce compliance-like activations
-                o_proj = layer.self_attn.o_proj.weight
-                device_projector = projector.to(o_proj.device)
+                    # Apply layer multiplier if profiles are provided
+                    layer_multiplier = self.get_layer_multiplier(
+                        layer_idx, num_layers, layer_profiles
+                    )
+                    effective_strength = addition_strength * layer_multiplier
 
-                # In-place addition: W += strength * (projector @ W)
-                # This biases the output toward the compliance direction
-                o_proj.data.add_(effective_strength * (device_projector @ o_proj.data))
+                    # Add to attention output projection
+                    # This encourages the model to produce compliance-like activations
+                    o_proj = layer.self_attn.o_proj.weight
+                    device_projector = projector.to(o_proj.device)
+
+                    # In-place addition: W += strength * (projector @ W)
+                    # This biases the output toward the compliance direction
+                    o_proj.data.add_(
+                        effective_strength * (device_projector @ o_proj.data)
+                    )
+                    stats["addition_layers_processed"] += 1
+
+                    # Verify no NaN/Inf introduced
+                    if torch.isnan(o_proj.data).any() or torch.isinf(o_proj.data).any():
+                        record_suppressed_error(
+                            error=None,
+                            context="abliterate_with_caa_nan_result",
+                            module="model",
+                            severity="error",
+                            details={"layer_idx": layer_idx},
+                        )
+                        stats["errors_suppressed"] += 1
+
+                except torch.cuda.OutOfMemoryError as e:
+                    record_suppressed_error(
+                        error=e,
+                        context="abliterate_with_caa_addition_oom",
+                        module="model",
+                        severity="error",
+                        details={"layer_idx": layer_idx},
+                    )
+                    stats["errors_suppressed"] += 1
+                    empty_cache()
+                except Exception as e:
+                    record_suppressed_error(
+                        error=e,
+                        context="abliterate_with_caa_addition_error",
+                        module="model",
+                        severity="error",
+                        details={"layer_idx": layer_idx},
+                        include_traceback=True,
+                    )
+                    stats["errors_suppressed"] += 1
 
                 # Clean up periodically
                 if layer_idx % CACHE_CLEAR_INTERVAL == (CACHE_CLEAR_INTERVAL - 1):
                     empty_cache()
 
-        return caa_applied
+        # Log summary
+        if stats["errors_suppressed"] > 0:
+            logger.warning(
+                "CAA ablation completed with errors",
+                caa_applied=caa_applied,
+                removal_matrices_modified=stats["removal_matrices_modified"],
+                addition_layers_processed=stats["addition_layers_processed"],
+                errors_suppressed=stats["errors_suppressed"],
+            )
+        else:
+            logger.info(
+                "CAA ablation completed",
+                caa_applied=caa_applied,
+                removal_matrices_modified=stats["removal_matrices_modified"],
+                addition_layers_processed=stats["addition_layers_processed"],
+            )
+
+        return caa_applied, stats
 
     def get_compliance_directions_from_responses(
         self,
@@ -3451,6 +4237,916 @@ class Model:
             self.save_circuits_to_cache(circuits, cache_path)
 
         return circuits
+
+    # ==================== MoE Router-Aware Expert Targeting ====================
+
+    def should_use_moe_targeting(self) -> bool:
+        """Check if MoE-specific targeting should be used.
+
+        Returns True if:
+        - Model is an MoE model
+        - Router-aware targeting is enabled in settings
+        """
+        return self.settings.use_router_aware_targeting and self.is_moe_model()
+
+    def is_moe_model(self) -> bool:
+        """Check if the model uses Mixture of Experts architecture.
+
+        Detects MoE by checking for expert modules in the first few layers.
+
+        Returns:
+            True if model has MoE layers, False otherwise
+        """
+        # Check first 3 layers (layer 0 might be dense in hybrid models like Moonlight)
+        for layer_idx in range(min(3, len(self.get_layers()))):
+            layer = self.get_layers()[layer_idx]
+            # Check for various MoE patterns
+            if hasattr(layer.mlp, "experts") or hasattr(layer.mlp, "shared_experts"):
+                return True
+            if hasattr(layer, "block_sparse_moe"):
+                return True
+            if hasattr(layer, "moe"):
+                return True
+        return False
+
+    def get_moe_config(self, layer_idx: int = 1) -> tuple[int, int] | None:
+        """Get MoE configuration (n_experts, top_k) from a layer.
+
+        Args:
+            layer_idx: Which layer to check (default 1 since layer 0 may be dense)
+
+        Returns:
+            Tuple of (n_routed_experts, top_k) or None if not MoE
+        """
+        if layer_idx >= len(self.get_layers()):
+            return None
+
+        layer = self.get_layers()[layer_idx]
+
+        # DeepSeekV3/Moonlight pattern
+        if hasattr(layer.mlp, "gate"):
+            gate = layer.mlp.gate
+            n_experts = getattr(gate, "n_routed_experts", None)
+            top_k = getattr(gate, "top_k", None)
+            if n_experts is not None and top_k is not None:
+                return (n_experts, top_k)
+
+        # Mixtral/general pattern
+        if hasattr(layer.mlp, "experts"):
+            n_experts = len(layer.mlp.experts)
+            # Default top_k is usually 2 for Mixtral-style
+            top_k = getattr(layer.mlp, "num_experts_per_tok", 2)
+            return (n_experts, top_k)
+
+        return None
+
+    def track_expert_activations(
+        self,
+        prompts: list[str],
+    ) -> MoEExpertActivations | None:
+        """Track which experts are activated for a set of prompts.
+
+        Uses forward hooks on MoE gate modules to capture expert selection
+        during inference. This is used for router-aware expert targeting.
+
+        Args:
+            prompts: List of prompts to track activations for
+
+        Returns:
+            MoEExpertActivations containing per-layer expert activation counts,
+            or None if model is not MoE or tracking fails
+
+        Note:
+            Returns None (not raises) for non-fatal failures to allow
+            fallback to standard abliteration.
+        """
+        if not prompts:
+            record_suppressed_error(
+                error=None,
+                context="track_expert_activations",
+                module="model",
+                severity="warning",
+                details={"reason": "Empty prompt list provided"},
+            )
+            return None
+
+        if not self.is_moe_model():
+            logger.info("Model is not MoE, skipping expert activation tracking")
+            return None
+
+        moe_config = self.get_moe_config()
+        if moe_config is None:
+            record_suppressed_error(
+                error=None,
+                context="track_expert_activations",
+                module="model",
+                severity="warning",
+                details={"reason": "Could not determine MoE config"},
+            )
+            logger.warning("Could not determine MoE config")
+            return None
+
+        n_experts, top_k = moe_config
+        num_layers = len(self.get_layers())
+
+        # Initialize counts
+        layer_expert_counts: dict[int, dict[int, int]] = {
+            i: {j: 0 for j in range(n_experts)} for i in range(num_layers)
+        }
+
+        # Storage for captured activations
+        captured_indices: list[tuple[int, Tensor]] = []
+        hook_errors: list[dict] = []
+
+        def make_hook(layer_idx: int):
+            """Create a forward hook for capturing expert indices.
+
+            NOTE: Hook output format assumption:
+            This assumes the MoE gate returns a tuple where output[0] contains
+            the selected expert indices tensor of shape (batch, seq_len, top_k).
+
+            Known compatible architectures:
+            - DeepSeekV3 / Moonlight: Returns (topk_idx, topk_weight, aux_loss)
+            - Mixtral-style: May use different format - not yet tested
+            - Phi-3.5-MoE: May use different format - not yet tested
+
+            If your MoE model uses a different gate output format, this hook
+            may silently fail to capture activations.
+            """
+
+            def hook(module, input, output):
+                try:
+                    # DeepSeekV3 MoEGate returns (topk_idx, topk_weight, aux_loss)
+                    # or similar tuple with expert indices
+                    if isinstance(output, tuple) and len(output) >= 2:
+                        topk_idx = output[0]  # Shape: (batch, seq_len, top_k)
+                        if topk_idx is not None and torch.is_tensor(topk_idx):
+                            captured_indices.append((layer_idx, topk_idx.detach()))
+                    else:
+                        # Track unexpected output format
+                        hook_errors.append(
+                            {
+                                "layer_idx": layer_idx,
+                                "output_type": type(output).__name__,
+                                "output_len": len(output)
+                                if isinstance(output, tuple)
+                                else "N/A",
+                            }
+                        )
+                except Exception as e:
+                    hook_errors.append(
+                        {
+                            "layer_idx": layer_idx,
+                            "error": str(e),
+                        }
+                    )
+
+            return hook
+
+        # Register hooks on all MoE gates
+        hooks = []
+        hooks_registered = 0
+        for layer_idx in range(num_layers):
+            layer = self.get_layers()[layer_idx]
+            if hasattr(layer.mlp, "gate"):
+                try:
+                    hook = layer.mlp.gate.register_forward_hook(make_hook(layer_idx))
+                    hooks.append(hook)
+                    hooks_registered += 1
+                except Exception as e:
+                    record_suppressed_error(
+                        error=e,
+                        context="track_expert_activations_hook_register",
+                        module="model",
+                        severity="warning",
+                        details={"layer_idx": layer_idx},
+                    )
+
+        if not hooks:
+            record_suppressed_error(
+                error=None,
+                context="track_expert_activations",
+                module="model",
+                severity="warning",
+                details={
+                    "reason": "No MoE gates found to hook",
+                    "num_layers": num_layers,
+                },
+            )
+            logger.warning("No MoE gates found to hook")
+            return None
+
+        batches_processed = 0
+        batches_failed = 0
+
+        try:
+            # Run inference to capture activations
+            print(f"  * Tracking expert activations for {len(prompts)} prompts...")
+            for batch in batchify(prompts, self.settings.batch_size):
+                captured_indices.clear()
+                try:
+                    # Generate just 1 token to capture gate activations
+                    with torch.no_grad():
+                        self.generate(batch, max_new_tokens=1)
+                    batches_processed += 1
+                except torch.cuda.OutOfMemoryError as e:
+                    batches_failed += 1
+                    record_suppressed_error(
+                        error=e,
+                        context="track_expert_activations_oom",
+                        module="model",
+                        severity="warning",
+                        details={
+                            "batch_size": len(batch),
+                            "batches_failed": batches_failed,
+                        },
+                    )
+                    empty_cache()
+                    if batches_failed > 3:
+                        logger.warning(
+                            f"Too many OOM errors ({batches_failed}) during expert tracking, aborting"
+                        )
+                        break
+                    continue
+                except Exception as e:
+                    batches_failed += 1
+                    record_suppressed_error(
+                        error=e,
+                        context="track_expert_activations_batch",
+                        module="model",
+                        severity="warning",
+                        details={"batch_size": len(batch)},
+                        include_traceback=True,
+                    )
+                    continue
+
+                # Process captured indices
+                for layer_idx, indices in captured_indices:
+                    # indices shape: (batch, seq_len, top_k)
+                    # Flatten and count
+                    try:
+                        flat_indices = indices.view(-1).cpu().tolist()
+                        for expert_idx in flat_indices:
+                            if 0 <= expert_idx < n_experts:
+                                layer_expert_counts[layer_idx][expert_idx] += 1
+                    except Exception as e:
+                        record_suppressed_error(
+                            error=e,
+                            context="track_expert_activations_process",
+                            module="model",
+                            severity="warning",
+                            details={"layer_idx": layer_idx},
+                        )
+
+        finally:
+            # Remove hooks
+            for hook in hooks:
+                try:
+                    hook.remove()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+
+        # Log hook errors if any
+        if hook_errors:
+            record_suppressed_error(
+                error=None,
+                context="track_expert_activations_hook_errors",
+                module="model",
+                severity="warning",
+                details={
+                    "n_hook_errors": len(hook_errors),
+                    "sample_errors": hook_errors[:3],  # First 3 errors
+                },
+            )
+
+        # Check for silent failure - no activations captured despite having hooks
+        total_captured = sum(
+            sum(counts.values()) for counts in layer_expert_counts.values()
+        )
+        if total_captured == 0:
+            record_suppressed_error(
+                error=None,
+                context="track_expert_activations",
+                module="model",
+                severity="warning",
+                details={
+                    "reason": "No expert activations captured",
+                    "hooks_registered": hooks_registered,
+                    "batches_processed": batches_processed,
+                    "batches_failed": batches_failed,
+                    "hook_errors": len(hook_errors),
+                    "advice": "MoE gate output format may not match expected pattern",
+                },
+            )
+            logger.warning(
+                "No expert activations captured during tracking. "
+                "MoE gate output format may not match expected pattern (topk_idx, topk_weight, ...). "
+                "This model's MoE architecture may not be compatible with router-aware targeting."
+            )
+            print(
+                "[yellow]  * Warning: No expert activations captured - "
+                "MoE gate format may be incompatible[/yellow]"
+            )
+
+        # Log summary
+        logger.info(
+            "Expert activation tracking complete",
+            total_captured=total_captured,
+            batches_processed=batches_processed,
+            batches_failed=batches_failed,
+            hooks_registered=hooks_registered,
+        )
+
+        return MoEExpertActivations(
+            layer_expert_counts=layer_expert_counts,
+            total_prompts=len(prompts),
+            n_experts_per_layer=n_experts,
+            top_k=top_k,
+        )
+
+    def get_moe_targeted_experts(
+        self,
+        activations: MoEExpertActivations,
+        threshold: float = 0.1,
+        top_k: int = 0,
+    ) -> dict[int, list[int]]:
+        """Get targeted experts per layer based on activation patterns.
+
+        Args:
+            activations: Expert activation tracking results
+            threshold: Minimum activation frequency to target
+            top_k: Maximum experts per layer (0 = no limit)
+
+        Returns:
+            Dict mapping layer_idx -> list of expert indices to target
+        """
+        targeted = {}
+        for layer_idx in activations.layer_expert_counts.keys():
+            experts = activations.get_high_activation_experts(
+                layer_idx, threshold, top_k
+            )
+            if experts:
+                targeted[layer_idx] = experts
+        return targeted
+
+    def abliterate_moe_targeted(
+        self,
+        refusal_directions: Tensor,
+        parameters: dict[str, AbliterationParameters],
+        targeted_experts: dict[int, list[int]],
+        layer_profiles: list["LayerRangeProfile"] | None = None,
+        use_mpoa: bool = False,
+        mpoa_norm_mode: str = "row",
+        mpoa_min_scale: float = 0.5,
+        mpoa_max_scale: float = 2.0,
+    ) -> dict[str, int]:
+        """Abliterate only targeted experts in MoE layers.
+
+        This performs router-aware abliteration: instead of abliterating all
+        experts (most of which never activate for refusal), only abliterate
+        experts that were identified as processing refusal prompts.
+
+        Also always abliterates:
+        - Attention o_proj (all tokens pass through this)
+        - Shared experts (always active in DeepSeekV3/Moonlight)
+
+        Args:
+            refusal_directions: Refusal direction tensor
+            parameters: Abliteration parameters per component
+            targeted_experts: Dict mapping layer_idx -> expert indices to target
+            layer_profiles: Optional per-layer weight profiles
+            use_mpoa: Use MPOA norm preservation
+            mpoa_norm_mode: MPOA norm mode
+            mpoa_min_scale: MPOA min scale
+            mpoa_max_scale: MPOA max scale
+
+        Returns:
+            Dict with ablation statistics:
+                - 'attn_ablated': Number of attention layers ablated
+                - 'experts_ablated': Number of expert MLPs ablated
+                - 'shared_experts_ablated': Number of shared experts ablated
+                - 'experts_skipped': Number of experts skipped (not targeted)
+                - 'errors_suppressed': Number of non-fatal errors encountered
+
+        Raises:
+            MoEAbliterationError: If critical error occurs during MoE abliteration
+        """
+        # Validate inputs
+        if refusal_directions is None or refusal_directions.numel() == 0:
+            raise MoEAbliterationError(
+                "Refusal directions tensor is empty or None for MoE abliteration."
+            )
+
+        if not parameters:
+            raise MoEAbliterationError(
+                "No abliteration parameters provided for MoE abliteration."
+            )
+
+        num_layers = len(self.get_layers())
+        stats = {
+            "attn_ablated": 0,
+            "experts_ablated": 0,
+            "shared_experts_ablated": 0,
+            "experts_skipped": 0,
+            "errors_suppressed": 0,
+        }
+
+        # Pre-compute projectors per device
+        device_projectors_cache: dict[torch.device, Tensor] = {}
+
+        def get_device_projector(projector: Tensor, device: torch.device) -> Tensor:
+            if device not in device_projectors_cache:
+                try:
+                    device_projectors_cache[device] = projector.to(device)
+                except torch.cuda.OutOfMemoryError:
+                    empty_cache()
+                    record_suppressed_error(
+                        error=None,
+                        context="abliterate_moe_projector_oom",
+                        module="model",
+                        severity="warning",
+                        details={"device": str(device)},
+                    )
+                    stats["errors_suppressed"] += 1
+                    device_projectors_cache[device] = projector.to("cpu")
+            return device_projectors_cache[device]
+
+        print(
+            f"  * MoE targeted abliteration: {len(targeted_experts)} layers with targets"
+        )
+        if targeted_experts:
+            sample_layer = next(iter(targeted_experts.keys()))
+            print(
+                f"    * Example layer {sample_layer}: targeting {len(targeted_experts[sample_layer])} experts"
+            )
+
+        logger.info(
+            "Starting MoE targeted abliteration",
+            num_layers=num_layers,
+            layers_with_targets=len(targeted_experts),
+            use_mpoa=use_mpoa,
+        )
+
+        for layer_idx in range(num_layers):
+            layer = self.get_layers()[layer_idx]
+
+            # Get layer-specific refusal direction
+            layer_direction = refusal_directions[
+                layer_idx + 1
+            ]  # +1 for embedding offset
+
+            # Validate direction
+            if torch.isnan(layer_direction).any() or torch.isinf(layer_direction).any():
+                record_suppressed_error(
+                    error=None,
+                    context="abliterate_moe_nan_direction",
+                    module="model",
+                    severity="warning",
+                    details={"layer_idx": layer_idx},
+                )
+                stats["errors_suppressed"] += 1
+                continue
+
+            projector = torch.outer(layer_direction, layer_direction).to(
+                self.model.dtype
+            )
+            device_projectors_cache.clear()
+
+            # Get layer multiplier
+            layer_multiplier = self.get_layer_multiplier(
+                layer_idx, num_layers, layer_profiles
+            )
+
+            # Get parameters for attention component
+            params = parameters.get("attn.o_proj")
+            if params:
+                distance = abs(layer_idx - params.max_weight_position)
+                if distance <= params.min_weight_distance:
+                    weight = params.max_weight + (
+                        distance / params.min_weight_distance
+                    ) * (params.min_weight - params.max_weight)
+                    weight = weight * layer_multiplier
+
+                    # Always abliterate attention (all tokens pass through)
+                    try:
+                        o_proj = layer.self_attn.o_proj.weight
+                        device_projector = get_device_projector(
+                            projector, o_proj.device
+                        )
+
+                        if use_mpoa:
+                            self._apply_mpoa_projection(
+                                o_proj,
+                                device_projector,
+                                weight,
+                                mpoa_norm_mode,
+                                mpoa_min_scale,
+                                mpoa_max_scale,
+                            )
+                        else:
+                            o_proj.sub_(weight * (device_projector @ o_proj))
+                        stats["attn_ablated"] += 1
+                    except torch.cuda.OutOfMemoryError as e:
+                        record_suppressed_error(
+                            error=e,
+                            context="abliterate_moe_attn_oom",
+                            module="model",
+                            severity="error",
+                            details={"layer_idx": layer_idx},
+                        )
+                        empty_cache()
+                        stats["errors_suppressed"] += 1
+                    except Exception as e:
+                        record_suppressed_error(
+                            error=e,
+                            context="abliterate_moe_attn_error",
+                            module="model",
+                            severity="error",
+                            details={"layer_idx": layer_idx},
+                            include_traceback=True,
+                        )
+                        stats["errors_suppressed"] += 1
+
+            # MLP abliteration - targeted
+            params = parameters.get("mlp.down_proj")
+            if params:
+                distance = abs(layer_idx - params.max_weight_position)
+                if distance <= params.min_weight_distance:
+                    weight = params.max_weight + (
+                        distance / params.min_weight_distance
+                    ) * (params.min_weight - params.max_weight)
+                    weight = weight * layer_multiplier
+
+                    # Get targeted experts for this layer
+                    layer_targets = targeted_experts.get(layer_idx, [])
+
+                    # Abliterate targeted routed experts
+                    if hasattr(layer.mlp, "experts"):
+                        for expert_idx, expert in enumerate(layer.mlp.experts):
+                            if expert_idx in layer_targets:
+                                if hasattr(expert, "down_proj"):
+                                    try:
+                                        down_proj = expert.down_proj.weight
+                                        device_projector = get_device_projector(
+                                            projector, down_proj.device
+                                        )
+                                        if use_mpoa:
+                                            self._apply_mpoa_projection(
+                                                down_proj,
+                                                device_projector,
+                                                weight,
+                                                mpoa_norm_mode,
+                                                mpoa_min_scale,
+                                                mpoa_max_scale,
+                                            )
+                                        else:
+                                            down_proj.sub_(
+                                                weight * (device_projector @ down_proj)
+                                            )
+                                        stats["experts_ablated"] += 1
+                                    except torch.cuda.OutOfMemoryError as e:
+                                        record_suppressed_error(
+                                            error=e,
+                                            context="abliterate_moe_expert_oom",
+                                            module="model",
+                                            severity="error",
+                                            details={
+                                                "layer_idx": layer_idx,
+                                                "expert_idx": expert_idx,
+                                            },
+                                        )
+                                        empty_cache()
+                                        stats["errors_suppressed"] += 1
+                                    except Exception as e:
+                                        record_suppressed_error(
+                                            error=e,
+                                            context="abliterate_moe_expert_error",
+                                            module="model",
+                                            severity="error",
+                                            details={
+                                                "layer_idx": layer_idx,
+                                                "expert_idx": expert_idx,
+                                            },
+                                            include_traceback=True,
+                                        )
+                                        stats["errors_suppressed"] += 1
+                                else:
+                                    record_suppressed_error(
+                                        error=None,
+                                        context="abliterate_moe_expert_missing_down_proj",
+                                        module="model",
+                                        severity="info",
+                                        details={
+                                            "layer_idx": layer_idx,
+                                            "expert_idx": expert_idx,
+                                            "reason": "Expert has no down_proj attribute",
+                                        },
+                                    )
+                            else:
+                                stats["experts_skipped"] += 1
+
+                    # Always abliterate shared experts (always active)
+                    if self.settings.use_moe_shared_experts and hasattr(
+                        layer.mlp, "shared_experts"
+                    ):
+                        shared = layer.mlp.shared_experts
+                        if hasattr(shared, "down_proj"):
+                            try:
+                                down_proj = shared.down_proj.weight
+                                device_projector = get_device_projector(
+                                    projector, down_proj.device
+                                )
+                                if use_mpoa:
+                                    self._apply_mpoa_projection(
+                                        down_proj,
+                                        device_projector,
+                                        weight,
+                                        mpoa_norm_mode,
+                                        mpoa_min_scale,
+                                        mpoa_max_scale,
+                                    )
+                                else:
+                                    down_proj.sub_(
+                                        weight * (device_projector @ down_proj)
+                                    )
+                                stats["shared_experts_ablated"] += 1
+                            except torch.cuda.OutOfMemoryError as e:
+                                record_suppressed_error(
+                                    error=e,
+                                    context="abliterate_moe_shared_oom",
+                                    module="model",
+                                    severity="error",
+                                    details={"layer_idx": layer_idx},
+                                )
+                                empty_cache()
+                                stats["errors_suppressed"] += 1
+                            except Exception as e:
+                                record_suppressed_error(
+                                    error=e,
+                                    context="abliterate_moe_shared_error",
+                                    module="model",
+                                    severity="error",
+                                    details={"layer_idx": layer_idx},
+                                    include_traceback=True,
+                                )
+                                stats["errors_suppressed"] += 1
+
+                    # Dense layers (like layer 0 in Moonlight)
+                    if hasattr(layer.mlp, "down_proj") and not hasattr(
+                        layer.mlp, "experts"
+                    ):
+                        try:
+                            down_proj = layer.mlp.down_proj.weight
+                            device_projector = get_device_projector(
+                                projector, down_proj.device
+                            )
+                            if use_mpoa:
+                                self._apply_mpoa_projection(
+                                    down_proj,
+                                    device_projector,
+                                    weight,
+                                    mpoa_norm_mode,
+                                    mpoa_min_scale,
+                                    mpoa_max_scale,
+                                )
+                            else:
+                                down_proj.sub_(weight * (device_projector @ down_proj))
+                        except Exception as e:
+                            record_suppressed_error(
+                                error=e,
+                                context="abliterate_moe_dense_error",
+                                module="model",
+                                severity="error",
+                                details={"layer_idx": layer_idx},
+                                include_traceback=True,
+                            )
+                            stats["errors_suppressed"] += 1
+
+            # Periodic cache clear
+            if layer_idx % CACHE_CLEAR_INTERVAL == (CACHE_CLEAR_INTERVAL - 1):
+                empty_cache()
+
+        device_projectors_cache.clear()
+
+        # Log summary with error tracking
+        if stats["errors_suppressed"] > 0:
+            logger.warning(
+                "MoE abliteration completed with errors",
+                attn_ablated=stats["attn_ablated"],
+                experts_ablated=stats["experts_ablated"],
+                shared_experts_ablated=stats["shared_experts_ablated"],
+                experts_skipped=stats["experts_skipped"],
+                errors_suppressed=stats["errors_suppressed"],
+            )
+            print(
+                f"[yellow]  * MoE abliteration completed with {stats['errors_suppressed']} errors suppressed[/yellow]"
+            )
+        else:
+            logger.info(
+                "MoE abliteration completed successfully",
+                attn_ablated=stats["attn_ablated"],
+                experts_ablated=stats["experts_ablated"],
+                shared_experts_ablated=stats["shared_experts_ablated"],
+                experts_skipped=stats["experts_skipped"],
+            )
+
+        print(
+            f"  * MoE abliteration complete: "
+            f"{stats['attn_ablated']} attn, "
+            f"{stats['experts_ablated']} experts, "
+            f"{stats['shared_experts_ablated']} shared, "
+            f"{stats['experts_skipped']} skipped"
+        )
+
+        # Raise error if too many failures
+        total_attempted = (
+            stats["attn_ablated"]
+            + stats["experts_ablated"]
+            + stats["shared_experts_ablated"]
+            + stats["errors_suppressed"]
+        )
+        if total_attempted > 0 and stats["errors_suppressed"] > total_attempted * 0.5:
+            raise MoEAbliterationError(
+                f"MoE abliteration had too many failures: {stats['errors_suppressed']} errors out of "
+                f"{total_attempted} attempted operations. Check error tracker for details."
+            )
+
+        return stats
+
+    def setup_moe_targeting(
+        self,
+        bad_prompts: list[str],
+    ) -> dict[int, list[int]] | None:
+        """Set up MoE targeting by tracking expert activations on bad prompts.
+
+        This is a convenience method that:
+        1. Checks if MoE targeting should be used
+        2. Tracks expert activations on bad prompts
+        3. Returns targeted experts per layer
+
+        Args:
+            bad_prompts: List of prompts that trigger refusals
+
+        Returns:
+            Dict mapping layer_idx -> expert indices to target,
+            or None if MoE targeting is not applicable
+
+        Note:
+            Returns None (not raises) for non-fatal failures to allow
+            fallback to standard abliteration.
+        """
+        if not self.should_use_moe_targeting():
+            return None
+
+        if not bad_prompts:
+            record_suppressed_error(
+                error=None,
+                context="setup_moe_targeting",
+                module="model",
+                severity="warning",
+                details={"reason": "Empty bad_prompts list"},
+            )
+            print(
+                "  * [yellow]Cannot set up MoE targeting: no bad prompts provided[/yellow]"
+            )
+            return None
+
+        print("* Setting up MoE router-aware expert targeting...")
+        logger.info(
+            "Setting up MoE targeting",
+            n_bad_prompts=len(bad_prompts),
+            threshold=self.settings.moe_expert_activation_threshold,
+            top_k=self.settings.moe_top_k_experts,
+        )
+
+        # Track activations
+        try:
+            activations = self.track_expert_activations(bad_prompts)
+        except Exception as e:
+            record_suppressed_error(
+                error=e,
+                context="setup_moe_targeting",
+                module="model",
+                severity="error",
+                details={"n_prompts": len(bad_prompts)},
+                include_traceback=True,
+            )
+            print(f"  * [yellow]Expert activation tracking failed: {e}[/yellow]")
+            return None
+
+        if activations is None:
+            record_suppressed_error(
+                error=None,
+                context="setup_moe_targeting",
+                module="model",
+                severity="warning",
+                details={"reason": "track_expert_activations returned None"},
+            )
+            print("  * [yellow]Could not track expert activations[/yellow]")
+            return None
+
+        # Get targeted experts
+        targeted = self.get_moe_targeted_experts(
+            activations,
+            threshold=self.settings.moe_expert_activation_threshold,
+            top_k=self.settings.moe_top_k_experts,
+        )
+
+        # Print summary
+        total_targeted = sum(len(experts) for experts in targeted.values())
+        total_possible = activations.n_experts_per_layer * len(targeted)
+
+        if total_targeted == 0:
+            record_suppressed_error(
+                error=None,
+                context="setup_moe_targeting",
+                module="model",
+                severity="warning",
+                details={
+                    "reason": "No experts targeted",
+                    "threshold": self.settings.moe_expert_activation_threshold,
+                    "top_k": self.settings.moe_top_k_experts,
+                    "n_layers": len(targeted),
+                    "advice": "Lower moe_expert_activation_threshold or check expert tracking",
+                },
+            )
+            print(
+                f"[yellow]  * Warning: No experts met activation threshold ({self.settings.moe_expert_activation_threshold}). "
+                f"Consider lowering threshold.[/yellow]"
+            )
+
+        if total_possible > 0:
+            pct = (total_targeted / total_possible) * 100
+            print(
+                f"  * Targeting {total_targeted} experts across {len(targeted)} layers "
+                f"({pct:.1f}% of {activations.n_experts_per_layer} experts per layer)"
+            )
+        else:
+            print(
+                f"  * Targeting {total_targeted} experts across {len(targeted)} layers"
+            )
+
+        logger.info(
+            "MoE targeting setup complete",
+            total_targeted=total_targeted,
+            layers_with_targets=len(targeted),
+            n_experts_per_layer=activations.n_experts_per_layer,
+        )
+
+        return targeted
+
+    def get_abliteration_error_summary(self) -> str:
+        """Get a summary of abliteration-related errors from the error tracker.
+
+        Returns:
+            Human-readable summary of abliteration errors, or empty string if none
+        """
+        from .error_tracker import error_tracker
+
+        # Get all errors related to abliteration
+        abliteration_contexts = [
+            "abliterate",
+            "abliterate_layer",
+            "abliterate_moe",
+            "abliterate_circuit",
+            "get_residuals",
+            "track_expert",
+            "setup_moe",
+            "get_layer_matrices",
+        ]
+
+        abliteration_errors = []
+        for error in error_tracker.get_all():
+            if any(ctx in error.context for ctx in abliteration_contexts):
+                abliteration_errors.append(error)
+
+        if not abliteration_errors:
+            return ""
+
+        lines = [
+            f"Abliteration encountered {len(abliteration_errors)} issues:",
+        ]
+
+        # Group by severity
+        by_severity: dict[str, list] = {}
+        for error in abliteration_errors:
+            sev = error.severity.value
+            if sev not in by_severity:
+                by_severity[sev] = []
+            by_severity[sev].append(error)
+
+        for severity in ["error", "warning", "info"]:
+            if severity in by_severity:
+                lines.append(f"  {severity.upper()}: {len(by_severity[severity])}")
+
+        # Show most recent errors
+        lines.append("Most recent issues:")
+        for error in abliteration_errors[-5:]:
+            lines.append(
+                f"  - [{error.severity.value}] {error.context}: {error.error_message}"
+            )
+
+        return "\n".join(lines)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         chat_prompt: str = self.tokenizer.apply_chat_template(

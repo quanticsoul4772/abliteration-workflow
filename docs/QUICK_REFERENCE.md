@@ -92,6 +92,57 @@ bruno --model Qwen/Qwen2.5-70B-Instruct \
 
 **Note:** v1.2.0+ uses layer-wise caching (55-75% less memory), enabling caching for 32B models on H200.
 
+## Checking Training Progress
+
+The Optuna database stores two values per trial:
+- `values[0]` = KL divergence
+- `values[1]` = normalized refusal ratio (not the actual count)
+
+The actual refusal count is in `user_attrs['refusals']`. Use this script to get correct results:
+
+```bash
+# Get ACTUAL best trials (correct way)
+uv run bruno-vast exec "cd /workspace && python3 << 'EOF'
+import optuna
+
+study = optuna.load_study(study_name='YOUR_STUDY_NAME', storage='sqlite:///YOUR_STUDY.db')
+
+print(f'Completed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}')
+
+# Get trials sorted by ACTUAL refusal count (from user_attrs)
+trials = [(t.number, t.values[0], t.user_attrs.get("refusals", 999))
+          for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+trials.sort(key=lambda x: (x[2], x[1]))  # Sort by refusals, then KL
+
+print('\nBest 10 trials by ACTUAL refusal count:')
+for num, kl, ref in trials[:10]:
+    print(f'  Trial {num}: KL={kl:.4f}, Refusals={ref}/104')
+
+zero_refusals = [t for t in trials if t[2] == 0]
+print(f'\nTrials with 0 refusals: {len(zero_refusals)}')
+EOF"
+```
+
+### Note on values[1]
+
+```python
+# values[1] is a normalized ratio, not the count
+trial.values[1]  # Returns something like 0.84375
+
+# user_attrs has the actual count
+trial.user_attrs['refusals']  # Returns actual count like 81
+```
+
+### Quick Progress Check
+
+```bash
+# Tail the log for current trial status
+uv run bruno-vast exec "tail -30 /workspace/bruno.log"
+
+# Count completed trials
+uv run bruno-vast exec "cd /workspace && python3 -c \"import optuna; s=optuna.load_study(study_name='YOUR_STUDY', storage='sqlite:///YOUR_DB.db'); print(f'Completed: {len([t for t in s.trials if t.state.name==\\\"COMPLETE\\\"])}')\""
+```
+
 ## Troubleshooting
 
 ```bash
