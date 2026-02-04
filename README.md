@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/badge/pypi-bruno--ai-blue.svg)](https://pypi.org/project/bruno-ai/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-**Neural behavior engineering framework for surgical modification of language model behaviors.**
+**Neural behavior modification for language models.**
 
 Named after Giordano Bruno (1548-1600), who proposed an infinite universe with infinite worlds against imposed cosmic constraints.
 
@@ -32,7 +32,7 @@ The technique works for any behavior with distinguishable activation patterns:
 
 **Advanced Techniques:**
 - Neural refusal detection using zero-shot NLI (catches soft refusals)
-- Supervised probing + ensemble extraction for robust direction vectors
+- Supervised probing + ensemble extraction for direction vectors
 - Activation-based calibration for adaptive weight scaling
 - Concept cone extraction for category-specific ablation
 - Contrastive Activation Addition (CAA) for combined removal + addition
@@ -322,7 +322,7 @@ Optuna automatically resumes from last completed trial.
 
 ## Error Handling
 
-Bruno includes comprehensive error handling with:
+Bruno includes error handling with:
 - Custom exception hierarchy (22 exception types)
 - Specific error messages with 2-3 actionable solutions
 - Input validation and security hardening
@@ -374,7 +374,7 @@ huggingface-cli login
 export HF_TOKEN='your-token'
 ```
 
-See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
+See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for troubleshooting.
 
 ## Performance Benchmarks
 
@@ -399,7 +399,7 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
 
 **User Guides:**
 - [README.md](README.md) - This file
-- [WORKFLOW.md](WORKFLOW.md) - Cloud GPU comprehensive guide
+- [WORKFLOW.md](WORKFLOW.md) - Cloud GPU guide
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Command cheatsheet
 - [LESSONS_LEARNED.md](LESSONS_LEARNED.md) - Troubleshooting
 
