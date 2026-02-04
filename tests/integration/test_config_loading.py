@@ -108,9 +108,11 @@ class TestConfigLoading:
         """Test that verify_config_was_parsed detects when TOML wasn't loaded."""
         from bruno.config_verify import verify_config_was_parsed
 
-        # Create a config file with use_mpoa = true
+        # Create a config file with values DIFFERENT from defaults
+        # Note: use_mpoa, use_concept_cones, use_caa now default to True
+        # So we set them to False in TOML to detect if TOML wasn't loaded
         config_content = """
-use_mpoa = true
+use_mpoa = false
 use_concept_cones = false
 activation_target_percentile = 0.60
 """
@@ -119,17 +121,19 @@ activation_target_percentile = 0.60
         monkeypatch.chdir(tmp_path)
 
         # Mock settings where TOML wasn't loaded (using defaults)
+        # Defaults are now: use_mpoa=True, use_concept_cones=True, use_caa=True
         class MockSettings:
-            use_mpoa = False  # Default, but TOML says true
-            use_concept_cones = False  # Matches TOML
-            use_caa = False  # Not in TOML
+            use_mpoa = True  # Default is True, but TOML says false
+            use_concept_cones = True  # Default is True, but TOML says false
+            use_caa = True  # Not in TOML, using default
             activation_target_percentile = 0.75  # Default, but TOML says 0.60
 
         warnings = verify_config_was_parsed(MockSettings())
 
-        # Should warn about use_mpoa and activation_target_percentile
+        # Should warn about use_mpoa, use_concept_cones, and activation_target_percentile
         assert len(warnings) >= 1
         assert any("use_mpoa" in w for w in warnings)
+        assert any("use_concept_cones" in w for w in warnings)
         # Also verify activation_target_percentile mismatch is detected
         assert any("activation_target_percentile" in w for w in warnings)
 
@@ -197,9 +201,10 @@ class TestConfigPriority:
         # Verify critical defaults are correct (conservative/safe values)
         fields = Settings.model_fields
 
-        # These should be False by default (opt-in experimental features)
-        assert fields["use_concept_cones"].default is False
-        assert fields["use_caa"].default is False
+        # These are now True by default (stable features enabled)
+        assert fields["use_concept_cones"].default is True
+        assert fields["use_caa"].default is True
+        # Circuit ablation is False by default (doesn't work with GQA models)
         assert fields["use_circuit_ablation"].default is False
 
         # These should be True by default (stable features)
@@ -293,8 +298,11 @@ class TestLogEffectiveSettings:
         captured = capsys.readouterr()
         output = captured.out
 
-        # Should show disabled features
-        assert "Disabled" in output or "disabled" in output.lower() or "MPOA" in output
+        # Should show disabled features section with specific feature names
+        # The log_effective_settings prints "Disabled features: MPOA, Concept Cones, CAA"
+        assert "Disabled features" in output or "disabled" in output.lower()
+        # At least one of the disabled features should be listed
+        assert "MPOA" in output or "Concept Cones" in output or "CAA" in output
 
 
 class TestDirectionWeightsFix:

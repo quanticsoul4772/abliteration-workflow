@@ -338,6 +338,7 @@ class Settings(BaseSettings):
     unhelpfulness_prompts: DatasetSpecification = Field(
         default=DatasetSpecification(
             dataset="allenai/c4",
+            config="en",  # Required for C4 dataset
             split="train[:200]",
             column="text",
         ),
@@ -593,6 +594,58 @@ class Settings(BaseSettings):
         description="Use warm-start parameters from model family profiles for faster Optuna convergence. Enqueues initial trials based on known good hyperparameters for the model family (llama, qwen, mistral, etc.).",
     )
 
+    # MoE-Specific Abliteration Settings
+    use_moe_shared_experts: bool = Field(
+        default=True,
+        description="Abliterate shared experts in MoE models (DeepSeekV3, Moonlight). Shared experts are ALWAYS active for every token, so abliterating them has guaranteed impact. Highly recommended for MoE models.",
+    )
+
+    use_router_aware_targeting: bool = Field(
+        default=True,
+        description="Use router-aware expert targeting for MoE models. Tracks which experts activate for refusal prompts and only abliterates high-activation experts instead of all experts. Reduces collateral damage to non-refusal experts.",
+    )
+
+    moe_expert_activation_threshold: float = Field(
+        default=0.1,
+        description="Minimum activation frequency (fraction of refusal prompts) for an expert to be targeted. Range 0.0-1.0. Higher values = fewer experts targeted = more precise but potentially less thorough.",
+    )
+
+    moe_top_k_experts: int = Field(
+        default=8,
+        description="Maximum number of top-activated experts to target per layer (0 = no limit, use threshold only). Provides upper bound on experts abliterated.",
+    )
+
+    # MoE Gate Abliteration Settings
+    use_gate_abliteration: bool = Field(
+        default=True,
+        description="Abliterate MoE gate weights to prevent refusal detection at routing level. Only applies to MoE models.",
+    )
+
+    gate_abliteration_strength: float = Field(
+        default=0.3,
+        description="Strength of gate abliteration (0.0 to 1.0). Lower values are safer but may be less effective. This is a starting point - Optuna will optimize.",
+    )
+
+    gate_abliteration_optuna: bool = Field(
+        default=True,
+        description="Let Optuna optimize gate_abliteration_strength during trials.",
+    )
+
+    use_two_stage_moe_abliteration: bool = Field(
+        default=True,
+        description="Use two-stage MoE abliteration: gate first, then re-track activations and abliterate experts. More thorough than single-pass. When False, uses simpler single-pass gate ablation followed by standard expert targeting.",
+    )
+
+    use_bias_manipulation: bool = Field(
+        default=True,
+        description="Modify MoE gate bias terms to prefer compliant experts. Only applies to MoE models with e_score_correction bias.",
+    )
+
+    bias_manipulation_delta: float = Field(
+        default=0.3,
+        description="Maximum bias adjustment for expert preference. Higher values steer routing more aggressively.",
+    )
+
     # MPOA (Norm-Preserving Biprojected Abliteration)
     use_mpoa: bool = Field(
         default=True,
@@ -791,6 +844,40 @@ class Settings(BaseSettings):
         """Ensure circuit_importance_threshold is in valid range."""
         if not 0.0 <= v <= 1.0:
             raise ValueError("circuit_importance_threshold must be between 0.0 and 1.0")
+        return v
+
+    @field_validator("moe_expert_activation_threshold")
+    @classmethod
+    def validate_moe_expert_activation_threshold(cls, v: float) -> float:
+        """Ensure moe_expert_activation_threshold is in valid range."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                "moe_expert_activation_threshold must be between 0.0 and 1.0"
+            )
+        return v
+
+    @field_validator("moe_top_k_experts")
+    @classmethod
+    def validate_moe_top_k_experts(cls, v: int) -> int:
+        """Ensure moe_top_k_experts is non-negative."""
+        if v < 0:
+            raise ValueError("moe_top_k_experts must be >= 0 (0 = no limit)")
+        return v
+
+    @field_validator("gate_abliteration_strength")
+    @classmethod
+    def validate_gate_abliteration_strength(cls, v: float) -> float:
+        """Ensure gate_abliteration_strength is in valid range."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("gate_abliteration_strength must be between 0.0 and 1.0")
+        return v
+
+    @field_validator("bias_manipulation_delta")
+    @classmethod
+    def validate_bias_manipulation_delta(cls, v: float) -> float:
+        """Ensure bias_manipulation_delta is in valid range."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("bias_manipulation_delta must be between 0.0 and 1.0")
         return v
 
     @field_validator("n_concept_cones")
