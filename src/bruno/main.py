@@ -78,8 +78,12 @@ from .exceptions import (
     BatchSizeError,
     ConceptConeError,
     ModelInferenceError,
+    MoEAbliterationError,
+    ResidualExtractionError,
     SupervisedProbeError,
+    WeightModificationError,
 )
+from .feature_tracker import feature_tracker
 from .logging import get_logger
 from .model import (
     AbliterationParameters,
@@ -209,11 +213,37 @@ def run():
 
     model = Model(settings)
 
+    # Track requested advanced features
+    if settings.use_neural_refusal_detection:
+        feature_tracker.request("neural_detection")
+    if settings.use_supervised_probing:
+        feature_tracker.request("supervised_probing")
+    if settings.ensemble_probe_pca:
+        feature_tracker.request("ensemble_probe_pca")
+    if settings.use_activation_calibration:
+        feature_tracker.request("activation_calibration")
+    if settings.use_concept_cones:
+        feature_tracker.request("concept_cones")
+    if settings.use_caa:
+        feature_tracker.request("caa")
+    if settings.use_circuit_ablation:
+        feature_tracker.request("circuit_ablation")
+    if settings.use_warm_start_params:
+        feature_tracker.request("warm_start")
+    if settings.orthogonalize_directions:
+        feature_tracker.request("helpfulness_orthogonalization")
+    if settings.use_moe_targeting:
+        feature_tracker.request("moe_targeting")
+
     # Early GQA detection for circuit ablation
     # Check immediately after model load to fail fast instead of after direction extraction
     if settings.use_circuit_ablation:
         is_gqa, n_heads, n_kv_heads = model.is_gqa_model()
         if is_gqa:
+            feature_tracker.mark_unavailable(
+                "circuit_ablation",
+                f"GQA model incompatibility (n_heads={n_heads}, n_kv_heads={n_kv_heads})",
+            )
             print()
             print("[red]Circuit ablation is NOT supported for GQA models![/red]")
             print(
@@ -324,6 +354,19 @@ def run():
 
     evaluator = Evaluator(settings, model)
 
+    # Track neural detection activation in evaluator
+    if settings.use_neural_refusal_detection and evaluator.neural_detector is not None:
+        feature_tracker.activate(
+            "neural_detection", {"model": "facebook/bart-large-mnli"}
+        )
+    elif settings.use_neural_refusal_detection:
+        feature_tracker.fail(
+            "neural_detection",
+            "Neural detector initialization failed",
+            "Falling back to string-based refusal detection",
+            "String pattern matching (may miss soft refusals)",
+        )
+
     # Initialize validation framework if enabled
     validator = None
     if settings.enable_validation:
@@ -404,6 +447,7 @@ def run():
     # Phase 2: Supervised Probing (uses good_residuals, bad_residuals)
     if settings.use_supervised_probing and not settings.ensemble_probe_pca:
         print("* Extracting refusal directions using supervised probing...")
+        feature_tracker.attempt("supervised_probing")
         try:
             # Reuse cached residuals instead of recomputing
             supervised_result = model.get_refusal_directions_supervised(
@@ -414,17 +458,60 @@ def run():
                 min_probe_accuracy=settings.min_probe_accuracy,
             )
             supervised_directions = supervised_result.directions
+            mean_accuracy = supervised_result.get_mean_accuracy()
             print(
-                f"  * Supervised probe succeeded (mean accuracy: {supervised_result.get_mean_accuracy():.2f})"
+                f"  * Supervised probe succeeded (mean accuracy: {mean_accuracy:.2f})"
+            )
+            feature_tracker.activate(
+                "supervised_probing", {"mean_accuracy": f"{mean_accuracy:.2f}"}
             )
         except SupervisedProbeError as e:
-            print(f"[yellow]  * Supervised probing failed: {e}[/yellow]")
-            print("[yellow]  * Continuing with PCA-only extraction[/yellow]")
+            from .errors import print_error
+
+            error_msg = str(e)
+
+            # Categorize error reason
+            if "imbalance" in error_msg.lower():
+                detailed_reason = "Class imbalance (need ≥10 samples per class)"
+                solutions = [
+                    "Increase dataset size to ensure balanced refusal/comply samples",
+                    "Use ensemble_probe_pca instead of supervised_probing alone",
+                    "Disable supervised probing: --use-supervised-probing false",
+                ]
+            elif "accuracy" in error_msg.lower():
+                detailed_reason = "Probe accuracy too low (need ≥65%)"
+                solutions = [
+                    "Improve training data quality (more diverse harmful prompts)",
+                    "Lower min_probe_accuracy threshold (not recommended)",
+                    "Use ensemble_probe_pca for combined probe + PCA",
+                ]
+            else:
+                detailed_reason = error_msg
+                solutions = [
+                    "Check dataset quality and balance",
+                    "Use ensemble_probe_pca or PCA-only extraction",
+                ]
+
+            print_error(
+                operation="Supervised Probing",
+                reason=detailed_reason,
+                impact="Using PCA-only extraction (may be less precise)",
+                solutions=solutions,
+                context={"error_details": error_msg},
+            )
+
+            feature_tracker.fail(
+                "supervised_probing",
+                detailed_reason,
+                "Using PCA-only extraction (may be less precise)",
+                "PCA-based direction extraction",
+            )
             supervised_directions = None
 
     # Phase 2: Ensemble Probe + PCA (uses good_residuals, bad_residuals)
     if settings.ensemble_probe_pca:
         print("* Extracting refusal directions using ensemble (probe + PCA)...")
+        feature_tracker.attempt("ensemble_probe_pca")
         try:
             # Reuse cached residuals instead of recomputing
             supervised_directions = model.get_refusal_directions_ensemble(
@@ -437,14 +524,60 @@ def run():
                 min_probe_accuracy=settings.min_probe_accuracy,
             )
             print("  * Ensemble directions extracted")
+            feature_tracker.activate(
+                "ensemble_probe_pca",
+                {
+                    "probe_weight": settings.ensemble_weight_probe,
+                    "pca_weight": settings.ensemble_weight_pca,
+                },
+            )
         except SupervisedProbeError as e:
-            print(f"[yellow]  * Ensemble extraction failed: {e}[/yellow]")
-            print("[yellow]  * Continuing with PCA-only extraction[/yellow]")
+            from .errors import print_error
+
+            error_msg = str(e)
+
+            # Categorize error reason
+            if "imbalance" in error_msg.lower():
+                detailed_reason = "Class imbalance prevents supervised probing"
+                solutions = [
+                    "Increase dataset size for balanced sampling",
+                    "Disable ensemble mode: --ensemble-probe-pca false",
+                    "Ensemble will fall back to PCA-only automatically",
+                ]
+            elif "accuracy" in error_msg.lower():
+                detailed_reason = "Probe accuracy insufficient for ensemble"
+                solutions = [
+                    "Improve training data quality",
+                    "Lower min_probe_accuracy threshold",
+                    "Ensemble will fall back to PCA-only automatically",
+                ]
+            else:
+                detailed_reason = error_msg
+                solutions = [
+                    "Check dataset quality",
+                    "PCA-only extraction will be used as fallback",
+                ]
+
+            print_error(
+                operation="Ensemble (Probe + PCA)",
+                reason=detailed_reason,
+                impact="Using PCA-only extraction automatically",
+                solutions=solutions,
+                context={"error_details": error_msg},
+            )
+
+            feature_tracker.fail(
+                "ensemble_probe_pca",
+                detailed_reason,
+                "Using PCA-only extraction automatically",
+                "PCA-based direction extraction",
+            )
             supervised_directions = None
 
     # Phase 4: Concept Cones (uses good_residuals, bad_residuals)
     if settings.use_concept_cones:
         print("* Extracting concept cones...")
+        feature_tracker.attempt("concept_cones")
         logger.info(
             "Concept cones enabled",
             n_cones=settings.n_concept_cones,
@@ -462,9 +595,56 @@ def run():
             )
             concept_cone_result = cc_result
             print(f"  * Extracted {len(concept_cone_result.cones)} concept cones")
+            feature_tracker.activate(
+                "concept_cones",
+                {"n_cones": len(concept_cone_result.cones)},
+            )
         except ConceptConeError as e:
-            print(f"[yellow]  * Concept cone extraction failed: {e}[/yellow]")
-            print("[yellow]  * Continuing with standard PCA extraction[/yellow]")
+            from .errors import print_error
+
+            error_msg = str(e)
+
+            # Categorize error reason
+            if "clustering" in error_msg.lower() or "silhouette" in error_msg.lower():
+                detailed_reason = "Poor clustering quality (harmful prompts don't form distinct categories)"
+                solutions = [
+                    "Increase harmful prompt dataset diversity",
+                    "Lower min_silhouette_score threshold (not recommended)",
+                    "Use standard PCA extraction instead: --use-concept-cones false",
+                ]
+            elif "cone" in error_msg.lower() or "size" in error_msg.lower():
+                detailed_reason = (
+                    "No valid cones found (categories too small or similar)"
+                )
+                solutions = [
+                    "Reduce n_concept_cones to find broader categories",
+                    "Lower min_cone_size threshold",
+                    "Use standard PCA extraction instead",
+                ]
+            else:
+                detailed_reason = error_msg
+                solutions = [
+                    "Check harmful prompts dataset quality",
+                    "Standard PCA extraction will be used as fallback",
+                ]
+
+            print_error(
+                operation="Concept Cones",
+                reason=detailed_reason,
+                impact="Using standard PCA extraction automatically",
+                solutions=solutions,
+                context={
+                    "error_details": error_msg,
+                    "n_cones_requested": settings.n_concept_cones,
+                },
+            )
+
+            feature_tracker.fail(
+                "concept_cones",
+                detailed_reason,
+                "Using standard PCA extraction automatically",
+                "PCA-based direction extraction",
+            )
             logger.warning(
                 "Concept cone extraction failed, falling back to PCA",
                 error=str(e),
@@ -474,6 +654,7 @@ def run():
     # Phase 5: CAA - Extract compliance direction (uses bad_residuals)
     if settings.use_caa:
         print("* Extracting compliance direction for CAA...")
+        feature_tracker.attempt("caa")
         logger.info(
             "CAA enabled",
             addition_strength=settings.caa_addition_strength,
@@ -496,28 +677,69 @@ def run():
                     refusing_residuals,
                 )
                 print("  * Compliance direction extracted")
-            else:
-                print(
-                    "[yellow]  * CAA extraction failed: insufficient samples (need 10+ refusals and 10+ compliant)[/yellow]"
+                feature_tracker.activate(
+                    "caa", {"addition_strength": settings.caa_addition_strength}
                 )
-                print("[yellow]  * Continuing without CAA[/yellow]")
+            else:
+                from .errors import print_error
+
+                detailed_reason = "Insufficient samples (need 10+ refusals and 10+ compliant responses)"
+                solutions = [
+                    "Increase harmful prompts dataset size",
+                    "Ensure prompts trigger varied model responses (some comply, some refuse)",
+                    "Check model behavior - it may refuse/comply with all prompts",
+                    "Disable CAA: --use-caa false",
+                ]
+
+                print_error(
+                    operation="CAA (Contrastive Activation Addition)",
+                    reason=detailed_reason,
+                    impact="Continuing without CAA (ablation still works, just without compliance boost)",
+                    solutions=solutions,
+                    context={
+                        "requirement": "≥10 refusals AND ≥10 compliant responses",
+                    },
+                )
+
+                feature_tracker.fail(
+                    "caa",
+                    detailed_reason,
+                    "Continuing without CAA (ablation still works, just without compliance boost)",
+                    "Standard ablation without compliance addition",
+                )
                 logger.warning(
                     "CAA extraction failed due to insufficient samples",
                     reason="Need 10+ refusals and 10+ compliant responses",
                 )
                 compliance_direction = None
         except torch.cuda.OutOfMemoryError:
+            from .errors import print_error
+
             mem_info = get_gpu_memory_info()
-            print(
-                "[yellow]  * CAA extraction failed: GPU OOM during response generation[/yellow]"
+            detailed_reason = f"GPU OOM during response generation ({mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used)"
+            solutions = [
+                "Reduce batch_size to lower memory usage",
+                "Use GPU with more VRAM",
+                "Disable CAA: --use-caa false",
+                "CAA requires generating responses which needs significant memory for logits",
+            ]
+
+            print_error(
+                operation="CAA (Contrastive Activation Addition)",
+                reason=detailed_reason,
+                impact="Continuing without CAA (ablation still works)",
+                solutions=solutions,
+                context={
+                    "gpu_memory": f"{mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB"
+                },
             )
-            print(
-                f"[yellow]  * GPU Memory: {mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used[/yellow]"
+
+            feature_tracker.fail(
+                "caa",
+                "GPU OOM during response generation",
+                "Continuing without CAA (ablation still works)",
+                "Standard ablation without compliance addition",
             )
-            print(
-                "[yellow]  * CAA requires generating responses which needs significant memory for logits[/yellow]"
-            )
-            print("[yellow]  * Continuing without CAA[/yellow]")
             compliance_direction = None
             # Clean up after OOM
             empty_cache()
@@ -605,6 +827,29 @@ def run():
         print("[dim]Concept Cones disabled[/dim]")
         logger.debug("Concept Cones is disabled")
 
+    # MoE Router-Aware Expert Targeting Setup
+    moe_targeted_experts: dict[int, list[int]] | None = None
+    if model.should_use_moe_targeting():
+        moe_targeted_experts = model.setup_moe_targeting(bad_prompts)
+        if moe_targeted_experts:  # Non-empty dict means we have targets
+            print("[green]MoE router-aware targeting enabled[/green]")
+            feature_tracker.activate(
+                "moe_targeting",
+                {"n_layers_with_targets": len(moe_targeted_experts)},
+            )
+        else:
+            # Empty dict or None - fall back to standard abliteration
+            moe_targeted_experts = None
+            print(
+                "[yellow]MoE targeting setup failed, using standard abliteration[/yellow]"
+            )
+            feature_tracker.fail(
+                "moe_targeting",
+                "MoE targeting setup failed (no experts met activation threshold)",
+                "Using standard abliteration instead",
+                "Standard layer-level abliteration",
+            )
+
     # Phase 6: Circuit Discovery
     if settings.use_circuit_ablation:
         # Check for GQA models upfront
@@ -631,6 +876,11 @@ def run():
                 f"Try lowering circuit_importance_threshold or disable use_circuit_ablation."
             )
 
+    # Print feature status summary before starting optimization
+    print()
+    feature_tracker.print_status()
+    print()
+
     def restore_and_abliterate_trial(
         trial_params: dict[str, AbliterationParameters],
         direction_index: float | None,
@@ -641,12 +891,22 @@ def run():
         This helper function centralizes the abliteration logic to avoid duplication
         across validation, auto-select, and interactive modes.
         """
+        nonlocal moe_targeted_experts  # Allow modification of outer scope variable
+
         if not skip_reload:
             model.reload_model()
 
         # Get residuals for activation calibration if needed
         calibrated_params = trial_params
         if settings.use_activation_calibration:
+            # Track activation only on first trial
+            if not hasattr(restore_and_abliterate_trial, "_activation_tracked"):
+                feature_tracker.activate(
+                    "activation_calibration",
+                    {"target_percentile": settings.activation_target_percentile},
+                )
+                restore_and_abliterate_trial._activation_tracked = True
+
             print("  * Computing activation statistics for calibration...")
             logger.info(
                 "Applying activation calibration",
@@ -670,6 +930,39 @@ def run():
             )
             del bad_residuals_cal
             empty_cache()
+
+        # MoE Router-Aware Expert Targeting (if enabled and set up)
+        # This is the primary abliteration path for MoE models - it handles attention,
+        # targeted experts, and shared experts in one pass, so we return after completion.
+        if moe_targeted_experts is not None:
+            print("  * Using MoE router-aware expert targeting...")
+            logger.info(
+                "Applying MoE router-aware abliteration",
+                n_layers_with_targets=len(moe_targeted_experts),
+                use_mpoa=settings.use_mpoa,
+            )
+            try:
+                moe_stats = model.abliterate_moe_targeted(
+                    refusal_directions,
+                    calibrated_params,
+                    moe_targeted_experts,
+                    layer_profiles=layer_profiles,
+                    use_mpoa=settings.use_mpoa,
+                    mpoa_norm_mode=settings.mpoa_norm_mode,
+                    mpoa_min_scale=settings.mpoa_min_scale,
+                    mpoa_max_scale=settings.mpoa_max_scale,
+                )
+                if moe_stats.get("errors_suppressed", 0) > 0:
+                    print(
+                        f"[yellow]  * Warning: {moe_stats['errors_suppressed']} errors "
+                        f"occurred during MoE abliteration (check logs)[/yellow]"
+                    )
+            except MoEAbliterationError as e:
+                print(f"[red]  * MoE abliteration failed: {e}[/red]")
+                print("[yellow]  * Falling back to standard abliteration...[/yellow]")
+                moe_targeted_experts = None  # Fall through to standard abliteration
+            else:
+                return  # MoE targeting handles all abliteration
 
         # Phase 6: Circuit-level ablation (if enabled and has circuits)
         if settings.use_circuit_ablation and refusal_circuits:
@@ -998,13 +1291,26 @@ def run():
         and completed_trials == 0
     ):
         # Warm-start was requested but no profile found - continue with random initialization
+        from .errors import print_warning
+
         detected = detect_model_family(settings.model)
-        print(
-            f"[yellow]  * Warm-start failed: No profile found for model family '{detected or 'unknown'}' "
-            f"(model: {settings.model})[/yellow]"
+        detailed_reason = f"No profile found for model family '{detected or 'unknown'}' (model: {settings.model})"
+
+        print_warning(
+            operation="Warm-Start Transfer",
+            issue=detailed_reason,
+            recommendation="Continuing with random initialization (set --model-family to use warm-start)",
         )
-        print(
-            "[yellow]  * Continuing with random initialization (set --model-family to use warm-start)[/yellow]"
+
+        feature_tracker.fail(
+            "warm_start",
+            detailed_reason,
+            "Using random parameter initialization (may take more trials to converge)",
+            "Random parameter initialization",
+        )
+    elif warm_start_enqueued:
+        feature_tracker.activate(
+            "warm_start", {"n_trials_enqueued": settings.warm_start_n_trials}
         )
 
     # Run optimization loop using phase module
@@ -1119,6 +1425,35 @@ def run():
                 trial=trial,
                 evaluator=evaluator,
             )
+
+        # Print summary report
+        from .summary import AbliterationSummary
+
+        elapsed_time = time.perf_counter() - start_time
+        summary = AbliterationSummary(
+            total_trials=len(study.trials),
+            successful_trials=len(
+                [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            ),
+            failed_trials=len(
+                [t for t in study.trials if t.state == optuna.trial.TrialState.FAIL]
+            ),
+            total_duration_seconds=elapsed_time,
+            model_name=settings.model,
+            model_size=f"{sum(p.numel() for p in model.model.parameters()) / 1e9:.1f}B",
+            final_model_path=str(save_directory),
+            best_trial_number=trial.user_attrs["index"],
+            best_kl_divergence=trial.user_attrs["kl_divergence"],
+            best_refusal_count=trial.user_attrs["refusals"],
+            initial_refusals=evaluator.base_refusals,
+            best_parameters=trial.params,
+            total_errors_suppressed=error_tracker.count(),
+            error_categories={
+                cat: len(errs) for cat, errs in error_tracker.errors.items()
+            },
+        )
+
+        summary.print_report()
 
         return
 
@@ -1317,6 +1652,50 @@ def main():
 
     try:
         run()
+    except WeightModificationError as error:
+        print()
+        print("[red]Abliteration Failed: Weight Modification Error[/]")
+        print(f"[yellow]{error}[/]")
+        print()
+        print("[yellow]Possible causes:[/]")
+        print("  - NaN/Inf values in refusal directions")
+        print("  - Shape mismatch between projector and weight matrix")
+        print("  - GPU memory fragmentation")
+        print()
+        print("[yellow]Try:[/]")
+        print("  - Reducing batch_size")
+        print("  - Using --cache-weights false for large models")
+        print("  - Checking for corrupted model weights")
+    except MoEAbliterationError as error:
+        print()
+        print("[red]Abliteration Failed: MoE-Specific Error[/]")
+        print(f"[yellow]{error}[/]")
+        print()
+        print("[yellow]Possible causes:[/]")
+        print("  - MoE gate output format incompatible")
+        print("  - Expert routing hooks failed")
+        print("  - No experts met activation threshold")
+        print()
+        print("[yellow]Try:[/]")
+        print(
+            "  - Disabling router-aware targeting: --use-router-aware-targeting false"
+        )
+        print("  - Lowering moe_expert_activation_threshold")
+        print("  - Using standard abliteration instead of MoE-targeted")
+    except ResidualExtractionError as error:
+        print()
+        print("[red]Abliteration Failed: Residual Extraction Error[/]")
+        print(f"[yellow]{error}[/]")
+        print()
+        print("[yellow]Possible causes:[/]")
+        print("  - GPU out of memory during batch processing")
+        print("  - Model doesn't support hidden state output")
+        print("  - Tokenization error for prompts")
+        print()
+        print("[yellow]Try:[/]")
+        print("  - Reducing batch_size")
+        print("  - Using a smaller model")
+        print("  - Checking prompt dataset for invalid characters")
     except BaseException as error:
         # Transformers appears to handle KeyboardInterrupt (or BaseException)
         # internally in some places, which can re-raise a different error in the handler,

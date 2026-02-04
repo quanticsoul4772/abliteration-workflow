@@ -116,7 +116,9 @@ def extract_refusal_directions(
         else:
             # Leave direction_weights as None so main.py uses settings.direction_weights
             # This ensures user-specified weights are respected when eigenvalue_weights is disabled
-            print(f"  * Using user-specified fixed weights: {settings.direction_weights}")
+            print(
+                f"  * Using user-specified fixed weights: {settings.direction_weights}"
+            )
             logger.info(
                 "Eigenvalue weights disabled, will use user-specified direction weights",
                 weights=[f"{w:.3f}" for w in settings.direction_weights],
@@ -204,15 +206,54 @@ def apply_helpfulness_orthogonalization(
         )
 
     except torch.cuda.OutOfMemoryError:
+        import questionary
+
+        from ..errors import print_error
+        from ..feature_tracker import feature_tracker
+
         mem_info = get_gpu_memory_info()
-        print(
-            "[yellow]  * Helpfulness orthogonalization failed: GPU OOM during residual extraction[/yellow]"
+        detailed_reason = f"GPU OOM during residual extraction ({mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used)"
+        solutions = [
+            "Reduce batch_size to lower memory usage",
+            "Use GPU with more VRAM (helpfulness extraction needs ~20-40GB)",
+            "Disable helpfulness orthogonalization: --orthogonalize-directions false",
+            "Continue without orthogonalization (ablation still works, may affect helpfulness slightly)",
+        ]
+
+        print()
+        print_error(
+            operation="Helpfulness Orthogonalization",
+            reason=detailed_reason,
+            impact="Model helpfulness preservation may be reduced without orthogonalization",
+            solutions=solutions,
+            context={
+                "gpu_memory": f"{mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB",
+                "helpful_prompts": len(helpful_prompts),
+                "unhelpful_prompts": len(unhelpful_prompts),
+            },
         )
-        print(
-            f"[yellow]  * GPU Memory: {mem_info['used_gb']:.1f}/{mem_info['total_gb']:.1f} GB used[/yellow]"
-        )
-        print("[yellow]  * Continuing without helpfulness orthogonalization[/yellow]")
+
+        # Ask user if they want to continue
+        print()
+        continue_choice = questionary.confirm(
+            "Continue without helpfulness orthogonalization?",
+            default=True,
+        ).ask()
+
+        if not continue_choice:
+            print("[red]Aborting abliteration run[/]")
+            raise
+
+        print("[yellow]Continuing without helpfulness orthogonalization...[/yellow]")
         empty_cache()
+
+        feature_tracker.fail(
+            "helpfulness_orthogonalization",
+            "GPU OOM during residual extraction",
+            "Model helpfulness preservation may be reduced",
+            "Standard ablation without helpfulness orthogonalization",
+        )
+
         record_suppressed_error(
             error=None,
             context="helpfulness_orthogonalization_oom",
