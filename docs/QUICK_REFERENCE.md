@@ -152,21 +152,57 @@ git push fork master
 
 ## Gradio Monitor Dashboard
 
-Real-time web dashboard for monitoring abliteration progress:
+Real-time web dashboard for monitoring abliteration progress.
+
+### CRITICAL: The Correct Way to Launch Gradio with Share URL
+
+**Why this is tricky:** Gradio prints the share URL to stdout, but background processes (`nohup`, `&`) don't capture it properly. The ONLY reliable way is to run in tmux and capture the pane output.
+
+**Step 1: Kill any existing monitor processes first**
+```bash
+uv run bruno-vast exec "pkill -f monitor_app; pkill -f frpc; tmux kill-session -t monitor 2>/dev/null; sleep 3"
+```
+
+**Step 2: Start monitor in tmux with share enabled**
+```bash
+uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --target-trials 300 --share --port 7860 2>&1'"
+```
+
+**Step 3: Wait 30 seconds for Gradio to initialize the tunnel, then capture the URL**
+```bash
+uv run bruno-vast exec "sleep 30 && tmux capture-pane -t monitor -p -S -200 | grep gradio.live"
+```
+
+**One-liner (recommended):**
+```bash
+uv run bruno-vast exec "pkill -f monitor_app; pkill -f frpc; tmux kill-session -t monitor 2>/dev/null; sleep 2; cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --target-trials 300 --share --port 7860 2>&1' && sleep 30 && tmux capture-pane -t monitor -p -S -200 | grep gradio.live"
+```
+
+### Common Mistakes (DON'T DO THESE)
 
 ```bash
-# Upload monitor app to instance
-scp -P <PORT> examples/monitor_app.py root@<HOST>:/workspace/
+# WRONG: nohup loses the share URL output
+nohup python monitor_app.py --share > log.txt 2>&1 &
 
-# Install dependencies
-uv run bruno-vast exec "pip install gradio plotly"
+# WRONG: Background process loses stdout
+python monitor_app.py --share &
 
-# Start monitor with public share link
-uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --share --port 7860'"
+# WRONG: Trying to grep frpc process args (unreliable)
+ps aux | grep frpc  # The URL format changes!
 
-# Get the public Gradio URL
-uv run bruno-vast exec "tmux capture-pane -t monitor -p | grep gradio.live"
+# WRONG: Not waiting long enough (need 30 seconds)
+sleep 10 && tmux capture-pane...  # Too short!
 ```
+
+### Why 30 Seconds?
+
+Gradio share URL setup requires:
+1. Local server startup (~2s)
+2. API call to gradio.app (~3s)
+3. FRPC tunnel establishment (~10-20s)
+4. URL printed to stdout (~1s)
+
+Total: ~20-25 seconds minimum. Use 30 seconds to be safe.
 
 **Features:**
 - Real-time trial progress visualization

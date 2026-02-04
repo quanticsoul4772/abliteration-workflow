@@ -38,13 +38,12 @@ The technique works for any behavior with distinguishable activation patterns:
 - Contrastive Activation Addition (CAA) for combined removal + addition
 - Circuit-level ablation targeting specific attention heads
 - Warm-start parameter transfer using model family profiles
-- **Sacred Direction Preservation** - Orthogonalize against capability directions (MMLU) to protect model abilities
+- Sacred direction preservation via MMLU orthogonalization
+- MoE architecture support with shared experts and router-aware targeting
 
 **Performance Optimizations:**
 - GPU-accelerated PCA (15-20x faster than CPU, ~5 min for 32B models)
-- **Layer-wise weight caching (NEW in v1.2.0):** 6-12x faster reload, 55-75% less memory
-  - Enables caching for 32B+ models (previously required `--cache-weights false`)
-  - Saves 3-4 hours per 200-trial run on 32B models
+- Layer-wise weight caching: 6-12x faster reload, 55-75% less memory
 - torch.compile() support (1.5-2x inference speedup)
 - Early stopping for refusal detection (40-60% faster evaluation)
 - Parallel evaluation (KL divergence and refusal counting)
@@ -152,6 +151,8 @@ docker run --gpus all -e HF_TOKEN=your_token -it quanticsoul4772/bruno \
 --use-warm-start-params           # Model family warm-start (default: true)
 --use-sacred-directions           # Preserve capabilities via MMLU directions (default: true)
 --use-mpoa                        # Multi-Prompt Orthogonal Ablation (default: true)
+--use-moe-shared-experts          # Abliterate shared experts in MoE models (default: true)
+--use-router-aware-targeting      # Target experts based on activation patterns (default: true)
 ```
 
 **Configuration Verification:**
@@ -254,7 +255,7 @@ bruno --model meta-llama/Llama-3.1-8B-Instruct
 
 See [experiments/](experiments/) for experimental behavioral directions.
 
-### Sacred Direction Preservation (NEW)
+### Sacred Direction Preservation
 
 Protect model capabilities during abliteration by orthogonalizing against capability-encoding directions:
 
@@ -262,13 +263,21 @@ Protect model capabilities during abliteration by orthogonalizing against capabi
 bruno <model> --use-sacred-directions true --n-sacred-directions 5
 ```
 
-**How it works:**
-1. Extract "sacred" directions from MMLU questions (encode reasoning capabilities)
-2. Measure overlap between refusal direction and sacred directions
-3. Orthogonalize refusal direction to remove any capability-damaging components
-4. Abliterate with the safe, orthogonalized direction
+This extracts directions from MMLU questions that encode reasoning capabilities, measures overlap with the refusal direction, and orthogonalizes to remove capability-damaging components before abliteration.
 
-**Expected impact:** +20-30% capability preservation (reduced MMLU accuracy drop)
+### MoE Architecture Support
+
+Bruno supports Mixture-of-Experts models like DeepSeekV3 and Moonlight with specialized abliteration:
+
+```bash
+bruno <model> --use-moe-shared-experts true --use-router-aware-targeting true
+```
+
+- **Shared experts**: Always-active experts that process every token are abliterated for guaranteed impact
+- **Router-aware targeting**: Tracks which experts activate on refusal prompts and targets only those experts
+- **Selective abliteration**: Skips experts that don't participate in refusal behavior, reducing unnecessary model modification
+
+This approach improves abliteration effectiveness on MoE models where standard techniques spread modifications across all 64+ experts inefficiently.
 
 ### Validation Framework
 
@@ -376,11 +385,11 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for comprehensive troubleshooting.
 - 200 trials: ~10 hrs (total cost: ~$22)
 - **Best result achieved:** Trial 173 - 0 refusals, KL=0.26
 
-**H200 GPU (Moonlight-16B-A3B-Instruct v2 Run):**
-- Model: moonshotai/Moonlight-16B-A3B-Instruct (MoE architecture)
-- 300 trials: ~12-14 hrs (estimated cost: ~$24-28)
-- 2-trial test result: KL=0.20, Refusals=95/104
-- Full run in progress (February 2026)
+**H200 GPU (Moonlight-16B-A3B-Instruct with MoE targeting):**
+- Model: moonshotai/Moonlight-16B-A3B-Instruct (MoE architecture, 64 experts)
+- 300 trials: ~10-12 hrs
+- Best result: Trial 77 - KL=0.193, Refusals=0/104
+- MoE router-aware targeting enabled, abliterating 200-850 experts per trial depending on parameters
 
 **4x RTX 4090 (Qwen2.5-Coder-32B):**
 - 200 trials: ~30-35 hrs (total cost: ~$47-55)
@@ -448,6 +457,6 @@ See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned impro
 
 AGPL-3.0-or-later
 
-Copyright (C) 2025 Philipp Emanuel Weidmann <pew@worldwidemann.com>
+Copyright (C) 2024-2026 Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 See [LICENSE](LICENSE) for full license text.
