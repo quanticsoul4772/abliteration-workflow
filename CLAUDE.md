@@ -903,3 +903,59 @@ bruno --model MODEL \
 - Don't make more tool calls
 - Don't try to "fix" anything
 - Just STOP and LISTEN
+
+---
+
+## Stopping Vast.ai Instances
+
+Verify you're stopping the correct instance:
+
+1. List ALL instances with full details:
+```bash
+vastai show instances --raw | python -c "import sys,json; data=json.load(sys.stdin); [print(f'ID: {i[\"id\"]}, Status: {i.get(\"actual_status\")}, SSH: {i.get(\"ssh_port\")}') for i in data]"
+```
+
+2. **Match the SSH port** to the one you've been using (e.g., port 15168)
+3. Stop the CORRECT instance by ID:
+```bash
+vastai stop instance <CORRECT_ID>
+```
+
+4. **Verify it stopped:**
+```bash
+vastai show instances
+```
+
+**DO NOT blindly stop the first instance in the list.** Multiple instances may exist. The wrong one may already be stopped.
+
+---
+
+## Checking Training Progress (CORRECT METHOD)
+
+**DO NOT trust Optuna values directly** - they may be normalized (0-1) not raw counts.
+
+**Step 1: Find the active log file and database**
+```bash
+ssh -p PORT root@HOST "ls -la /workspace/*.log /workspace/*.db; ps aux | grep bruno"
+```
+
+**Step 2: Get actual refusal counts from logs (MOST RELIABLE)**
+```bash
+ssh -p PORT root@HOST "grep -E 'Refusals:' /workspace/ACTIVE_LOG.log | tail -30"
+```
+This shows raw counts like "Refusals: 79/104" - use these numbers.
+
+**Step 3: Get trial count and progress**
+```bash
+ssh -p PORT root@HOST "tail -50 /workspace/ACTIVE_LOG.log | grep -E 'Trial|Elapsed|remaining'"
+```
+
+**WRONG: Trusting Optuna values[1] directly**
+- Optuna stores normalized values (0.0-1.0), not raw counts
+- values[1]=0.8125 means 84/104 refusals, NOT 0 or 1 refusal
+- The commander agent may misinterpret these
+
+**CORRECT: Always grep the log for "Refusals: X/Y" format**
+- This gives actual counts
+- No interpretation needed
+- User can verify directly

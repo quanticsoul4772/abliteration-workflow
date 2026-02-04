@@ -507,6 +507,21 @@ bruno --model MODEL \
 
 ---
 
+## Upload Timeline
+
+Actual upload times based on real deployments:
+
+| Model Size | Fresh Upload | Cached (diff only) |
+|------------|--------------|--------------------|
+| 7B | 10-15 min | 2-5 min |
+| 16B MoE | 15-25 min | 6-7 min |
+| 32B | 30-45 min | 10-15 min |
+| 70B | 60-90 min | 20-30 min |
+
+**Note:** HuggingFace caches uploaded files by hash. Re-uploading a similar model (e.g., different abliteration of same base) only uploads changed files. The Moonlight-16B-A3B-Instruct-bruno upload took **6-7 minutes** because most shards were already cached from a previous upload.
+
+---
+
 ## Cost Considerations
 
 *Prices are approximate as of February 2026. Check [HuggingFace pricing](https://huggingface.co/pricing) for current rates.*
