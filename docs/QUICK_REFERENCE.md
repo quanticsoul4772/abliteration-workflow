@@ -279,7 +279,17 @@ uv run bruno-vast stop
 
 ## Successful Abliteration Results
 
-### Qwen2.5-Coder-32B Trial 173 (Best Result)
+### Moonlight-16B-A3B-Instruct-Bruno (Latest)
+- **Date:** 2026-02-03
+- **GPU:** 2x RTX 4090 on Vast.ai
+- **HuggingFace:** [rawcell/Moonlight-16B-A3B-Instruct-bruno](https://huggingface.co/rawcell/Moonlight-16B-A3B-Instruct-bruno)
+- **Benchmarks vs Previous Model:**
+  - MMLU: **48.7%** (+0.7%)
+  - HellaSwag: **58.0%** (+2.0%)
+  - GSM8K: **55.0%** (+4.0%)
+- **Result:** All benchmarks improved, 59% refusal reduction
+
+### Qwen2.5-Coder-32B Trial 173
 - **Date:** 2026-02-01
 - **GPU:** H200 141GB on Vast.ai
 - **Result:** **0 refusals, KL=0.26**

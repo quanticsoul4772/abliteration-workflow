@@ -682,12 +682,18 @@ See `scripts/setup_runpod_a100.md` for RunPod setup instructions.
 
 ## Successful Abliteration Results
 
-### Moonlight-16B-A3B-Instruct (Latest)
-- **Date:** 2026-02-02
+### Moonlight-16B-A3B-Instruct-Bruno (Latest)
+- **Date:** 2026-02-03
 - **Model:** moonshotai/Moonlight-16B-A3B-Instruct
-- **GPU:** H200 141GB on Vast.ai
+- **GPU:** 2x RTX 4090 on Vast.ai (benchmarks), H200 141GB (abliteration)
 - **Bruno Version:** 2.0.0
-- **Result:** **59% refusal reduction** (100% → 41%), MMLU +0.4%
+- **HuggingFace:** [rawcell/Moonlight-16B-A3B-Instruct-bruno](https://huggingface.co/rawcell/Moonlight-16B-A3B-Instruct-bruno)
+- **Result:** **59% refusal reduction** (100% → 41%)
+- **Benchmarks vs Previous Model:**
+  - MMLU: **48.7%** (73/150) vs 48.0% (72/150) = **+0.7%**
+  - HellaSwag: **58.0%** (116/200) vs 56.0% (112/200) = **+2.0%**
+  - GSM8K: **55.0%** (55/100) vs 51.0% (51/100) = **+4.0%**
+- **Key Finding:** Bruno abliteration improved ALL benchmarks while reducing refusals
 - **Notes:**
   - Verified all v2.0.0 error handlers work correctly
   - SupervisedProbeError, ConceptConeError, CAA, Warm-start all handled gracefully

@@ -390,6 +390,8 @@ See [LESSONS_LEARNED.md](LESSONS_LEARNED.md) for troubleshooting.
 - 300 trials: ~10-12 hrs
 - Best result: Trial 77 - KL=0.193, Refusals=0/104
 - MoE router-aware targeting enabled, abliterating 200-850 experts per trial depending on parameters
+- **Published model:** [rawcell/Moonlight-16B-A3B-Instruct-bruno](https://huggingface.co/rawcell/Moonlight-16B-A3B-Instruct-bruno)
+- **Benchmarks:** MMLU 48.7%, HellaSwag 58.0%, GSM8K 55.0% (all improved over previous abliteration)
 
 **4x RTX 4090 (Qwen2.5-Coder-32B):**
 - 200 trials: ~30-35 hrs (total cost: ~$47-55)
