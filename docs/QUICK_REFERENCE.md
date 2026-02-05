@@ -1,296 +1,151 @@
-# Bruno Quick Reference Card
+# Quick Reference
 
-Essential commands and flags for daily use.
-
-## Common Commands
+## Instance Management
 
 ```bash
-# Build & deploy
+uv run bruno-vast create <GPU_TYPE> <COUNT>
+uv run bruno-vast list
+uv run bruno-vast setup
+uv run bruno-vast watch
+uv run bruno-vast stop
+uv run bruno-vast terminate
+```
+
+## Run by Model Size
+
+```bash
+# 7B
+bruno Qwen/Qwen2.5-7B-Instruct --auto-select --n-trials 50 --compile
+
+# 32B
+bruno Qwen/Qwen2.5-Coder-32B-Instruct \
+  --auto-select --cache-weights true --unhelpfulness-prompts.config en \
+  --storage sqlite:///study.db --study-name qwen32b --n-trials 200
+
+# 70B
+bruno Qwen/Qwen2.5-70B-Instruct \
+  --auto-select --cache-weights false --unhelpfulness-prompts.config en \
+  --batch-size 1 --storage sqlite:///study.db --study-name qwen70b --n-trials 200
+```
+
+## Monitoring
+
+```bash
+# Live dashboard
+uv run bruno-vast watch
+
+# Tail logs
+uv run bruno-vast exec "tail -f /workspace/bruno.log"
+
+# Trial count
+uv run bruno-vast exec "cd /workspace && python3 -c \"import optuna; s=optuna.load_study(study_name='STUDY', storage='sqlite:///DB.db'); print(len([t for t in s.trials if t.state.name=='COMPLETE']))\""
+```
+
+## Checking Best Trials
+
+`values[1]` is a normalized ratio, not the refusal count. Use `user_attrs['refusals']`:
+
+```python
+import optuna
+study = optuna.load_study(study_name='STUDY', storage='sqlite:///DB.db')
+trials = [(t.number, t.values[0], t.user_attrs.get("refusals", 999))
+          for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+trials.sort(key=lambda x: (x[2], x[1]))
+for num, kl, ref in trials[:10]:
+    print(f'Trial {num}: KL={kl:.4f}, Refusals={ref}')
+```
+
+## Gradio Monitor
+
+```bash
+# Start in tmux (required to capture share URL)
+uv run bruno-vast exec "pkill -f monitor_app; tmux kill-session -t monitor 2>/dev/null; sleep 2; \
+  cd /workspace && tmux new-session -d -s monitor \
+  'python monitor_app.py --storage sqlite:///DB.db --study STUDY --share --port 7860 2>&1'"
+
+# Get share URL (wait 30s for tunnel)
+uv run bruno-vast exec "sleep 30 && tmux capture-pane -t monitor -p -S -200 | grep gradio.live"
+```
+
+## Download & Stop
+
+```bash
+uv run bruno-vast models
+uv run bruno-vast download <MODEL>
+uv run bruno-vast stop
+```
+
+## Build & Deploy
+
+```bash
 uv build
 scp -P <PORT> dist/bruno_ai-*.whl root@<HOST>:/workspace/
 uv run bruno-vast exec "pip install /workspace/bruno_ai-*.whl --force-reinstall"
-
-# Instance management
-uv run bruno-vast create <GPU_TYPE> <COUNT>
-uv run bruno-vast list
-uv run bruno-vast start
-uv run bruno-vast stop
-uv run bruno-vast terminate
-
-# Monitoring
-uv run bruno-vast watch          # Live terminal dashboard
-uv run bruno-vast progress        # Quick status
-uv run bruno-vast exec "tail -f /workspace/bruno.log"  # Raw logs
-
-# Gradio Web Dashboard (NEW!)
-uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///moonlight_reabliteration.db --study STUDY_NAME --share --port 7860'"
-uv run bruno-vast exec "tmux capture-pane -t monitor -p | grep gradio.live"  # Get public URL
-
-# Download results
-uv run bruno-vast models
-uv run bruno-vast download <MODEL_NAME>
 ```
 
-## Run Commands by Model Size
+## Benchmark Comparison
 
-### 7B Models
 ```bash
-bruno --model Qwen/Qwen2.5-7B-Instruct \
-  --auto-select true \
-  --n-trials 50 \
-  --compile
+python scripts/benchmark_compare.py \
+  --model-a Qwen/Qwen2.5-7B-Instruct \
+  --model-b ./models/Qwen2.5-7B-Instruct-bruno \
+  --output results.json
+
+# With 4-bit quantization for limited VRAM
+python scripts/benchmark_compare.py \
+  --model-a original --model-b abliterated --quantize-4bit
 ```
 
-### 32B Models
-```bash
-bruno --model Qwen/Qwen2.5-Coder-32B-Instruct \
-  --auto-select true \
-  --cache-weights true \
-  --unhelpfulness-prompts.config en \
-  --storage sqlite:///study.db \
-  --study-name qwen32b \
-  --n-trials 200
-```
+## Troubleshooting
 
-### 70B Models
 ```bash
-bruno --model Qwen/Qwen2.5-70B-Instruct \
-  --auto-select true \
-  --cache-weights false \
-  --unhelpfulness-prompts.config en \
-  --batch-size 1 \
-  --max-batch-size 16 \
-  --storage sqlite:///study.db \
-  --study-name qwen70b \
-  --n-trials 200
+# Check if running
+uv run bruno-vast exec "ps aux | grep 'bruno --model'"
+
+# Check errors
+uv run bruno-vast exec "tail -100 /workspace/bruno.log | grep -i error"
+
+# GPU OOM
+uv run bruno-vast exec "dmesg | grep -i 'out of memory'"
+
+# Clear cache after reinstall
+uv run bruno-vast exec "find /usr/local/lib/python3.*/dist-packages/bruno -name '*.pyc' -delete"
+
+# Kill and restart
+uv run bruno-vast exec "pkill -f bruno && rm /workspace/bruno.log"
 ```
 
 ## Critical Flags
 
 | Flag | When to Use |
 |------|-------------|
-| `--cache-weights true` | **Default for all models** (v1.2.0+) |
-| `--cache-weights false` | **Only for H100 80GB with 32B models** |
-| `--unhelpfulness-prompts.config en` | **Required for 32B+** (C4 dataset) |
-| `--auto-select true` | Recommended (auto-saves best trial) |
-| `--storage sqlite:///study.db` | Recommended (resume support) |
-| `--compile` | Optional (1.5-2x inference speedup) |
+| `--cache-weights true` | Default for all models (v1.2.0+) |
+| `--cache-weights false` | H100 80GB with 32B models |
+| `--unhelpfulness-prompts.config en` | Required for 32B+ (C4 dataset) |
+| `--auto-select` | Auto-save best trial |
+| `--storage sqlite:///study.db` | Resume support |
+| `--compile` | torch.compile() speedup |
 
-## Model Size Guidelines
+## Performance Stats (H200, 32B model)
 
-**v1.2.0+ with Layer-Wise Caching:**
+| Operation | Time |
+|-----------|------|
+| Model download | ~5 min (one-time) |
+| PCA extraction | ~5 min |
+| Single trial | ~2 min (with caching) |
+| 200 trials | ~9-11 hrs |
 
-| Size | GPU | Disk | Cache Weights | C4 Config |
-|------|-----|------|---------------|-----------|
-| 7B | 24GB | 100GB | ✅ Yes | ❌ No |
-| 13B | 24GB | 150GB | ✅ Yes | ❌ No |
-| 32B | **H200 141GB** | **200GB** | ✅ Yes | ✅ Yes |
-| 32B | H100 80GB | **200GB** | ❌ No | ✅ Yes |
-| 70B | 80GB+ | **300GB** | ❌ No | ✅ Yes |
+## Cost Estimation
 
-**Note:** v1.1.0+ streams C4 on-demand (~0GB overhead). Network required during dataset loading.
+```
+Cost = GPU_rate * (setup_time + trial_time * n_trials)
 
-**Note:** v1.2.0+ uses layer-wise caching (55-75% less memory), enabling caching for 32B models on H200.
+Example: 32B on H200 @ $2.14/hr, 200 trials
+= $2.14 * (0.5 + 0.033 * 200) = ~$15
+```
 
-## Checking Training Progress
-
-The Optuna database stores two values per trial:
-- `values[0]` = KL divergence
-- `values[1]` = normalized refusal ratio (not the actual count)
-
-The actual refusal count is in `user_attrs['refusals']`. Use this script to get correct results:
+## Git
 
 ```bash
-# Get ACTUAL best trials (correct way)
-uv run bruno-vast exec "cd /workspace && python3 << 'EOF'
-import optuna
-
-study = optuna.load_study(study_name='YOUR_STUDY_NAME', storage='sqlite:///YOUR_STUDY.db')
-
-print(f'Completed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}')
-
-# Get trials sorted by ACTUAL refusal count (from user_attrs)
-trials = [(t.number, t.values[0], t.user_attrs.get("refusals", 999))
-          for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-trials.sort(key=lambda x: (x[2], x[1]))  # Sort by refusals, then KL
-
-print('\nBest 10 trials by ACTUAL refusal count:')
-for num, kl, ref in trials[:10]:
-    print(f'  Trial {num}: KL={kl:.4f}, Refusals={ref}/104')
-
-zero_refusals = [t for t in trials if t[2] == 0]
-print(f'\nTrials with 0 refusals: {len(zero_refusals)}')
-EOF"
+git push fork master   # Always push to fork
 ```
-
-### Note on values[1]
-
-```python
-# values[1] is a normalized ratio, not the count
-trial.values[1]  # Returns something like 0.84375
-
-# user_attrs has the actual count
-trial.user_attrs['refusals']  # Returns actual count like 81
-```
-
-### Quick Progress Check
-
-```bash
-# Tail the log for current trial status
-uv run bruno-vast exec "tail -30 /workspace/bruno.log"
-
-# Count completed trials
-uv run bruno-vast exec "cd /workspace && python3 -c \"import optuna; s=optuna.load_study(study_name='YOUR_STUDY', storage='sqlite:///YOUR_DB.db'); print(f'Completed: {len([t for t in s.trials if t.state.name==\\\"COMPLETE\\\"])}')\""
-```
-
-## Troubleshooting
-
-```bash
-# Process not running?
-uv run bruno-vast exec "ps aux | grep 'bruno --model'"
-
-# Check errors
-uv run bruno-vast exec "tail -100 /workspace/bruno.log | grep -i error"
-
-# GPU OOM?
-uv run bruno-vast exec "dmesg | grep -i 'out of memory'"
-
-# Clear cache after reinstall
-uv run bruno-vast exec "find /usr/local/lib/python3.*/dist-packages/bruno -name '*.pyc' -delete"
-
-# Restart fresh
-uv run bruno-vast exec "pkill -f bruno && rm /workspace/bruno.log"
-```
-
-## Performance Stats (H200)
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Model download (32B) | ~5 min | One-time, cached |
-| PCA extraction (32B) | **~5 min** | GPU optimized (was 4-6 hrs) |
-| Single trial (32B) | ~2 min | With layer-wise caching |
-| 200 trials (32B) | ~9-11 hrs | Total cost: ~$19-24 |
-
-## Cost Quick Math
-
-```
-Cost = GPU_rate × (setup_time + trial_time × n_trials)
-
-Example (32B on H200 @ $2.14/hr with caching):
-= $2.14 × (0.5hr + 0.033hr × 200)
-= $2.14 × 7.1hr
-= $15.19
-
-Example (32B on H200 @ $2.14/hr without caching):
-= $2.14 × (0.5hr + 0.05hr × 200)
-= $2.14 × 10.5hr
-= $22.47
-```
-
-## Git Workflow
-
-```bash
-# Update docs
-git add CLAUDE.md docs/
-git commit -m "Document <change>"
-
-# Push to fork (abliteration-workflow)
-git push fork master
-
-# NEVER push to main bruno repo
-# git push origin master  # ❌ WRONG
-```
-
-## Gradio Monitor Dashboard
-
-Real-time web dashboard for monitoring abliteration progress.
-
-### CRITICAL: The Correct Way to Launch Gradio with Share URL
-
-**Why this is tricky:** Gradio prints the share URL to stdout, but background processes (`nohup`, `&`) don't capture it properly. The ONLY reliable way is to run in tmux and capture the pane output.
-
-**Step 1: Kill any existing monitor processes first**
-```bash
-uv run bruno-vast exec "pkill -f monitor_app; pkill -f frpc; tmux kill-session -t monitor 2>/dev/null; sleep 3"
-```
-
-**Step 2: Start monitor in tmux with share enabled**
-```bash
-uv run bruno-vast exec "cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --target-trials 300 --share --port 7860 2>&1'"
-```
-
-**Step 3: Wait 30 seconds for Gradio to initialize the tunnel, then capture the URL**
-```bash
-uv run bruno-vast exec "sleep 30 && tmux capture-pane -t monitor -p -S -200 | grep gradio.live"
-```
-
-**One-liner (recommended):**
-```bash
-uv run bruno-vast exec "pkill -f monitor_app; pkill -f frpc; tmux kill-session -t monitor 2>/dev/null; sleep 2; cd /workspace && tmux new-session -d -s monitor 'python monitor_app.py --storage sqlite:///YOUR_STUDY.db --study YOUR_STUDY_NAME --target-trials 300 --share --port 7860 2>&1' && sleep 30 && tmux capture-pane -t monitor -p -S -200 | grep gradio.live"
-```
-
-### Common Mistakes (DON'T DO THESE)
-
-```bash
-# WRONG: nohup loses the share URL output
-nohup python monitor_app.py --share > log.txt 2>&1 &
-
-# WRONG: Background process loses stdout
-python monitor_app.py --share &
-
-# WRONG: Trying to grep frpc process args (unreliable)
-ps aux | grep frpc  # The URL format changes!
-
-# WRONG: Not waiting long enough (need 30 seconds)
-sleep 10 && tmux capture-pane...  # Too short!
-```
-
-### Why 30 Seconds?
-
-Gradio share URL setup requires:
-1. Local server startup (~2s)
-2. API call to gradio.app (~3s)
-3. FRPC tunnel establishment (~10-20s)
-4. URL printed to stdout (~1s)
-
-Total: ~20-25 seconds minimum. Use 30 seconds to be safe.
-
-**Features:**
-- Real-time trial progress visualization
-- Interactive Plotly charts (optimization history, Pareto front)
-- Parameter importance analysis
-- Trial comparison and timeline
-- Auto-refresh every 30 seconds
-
-## Emergency Stops
-
-```bash
-# Stop instance (KILLS process)
-uv run bruno-vast stop
-
-# Kill process only (keeps instance)
-uv run bruno-vast exec "pkill -f 'bruno --model'"
-
-# Download before stopping
-uv run bruno-vast models
-uv run bruno-vast download <MODEL>
-uv run bruno-vast stop
-```
-
-## Successful Abliteration Results
-
-### Moonlight-16B-A3B-Instruct-Bruno (Latest)
-- **Date:** 2026-02-03
-- **GPU:** 2x RTX 4090 on Vast.ai
-- **HuggingFace:** [rawcell/Moonlight-16B-A3B-Instruct-bruno](https://huggingface.co/rawcell/Moonlight-16B-A3B-Instruct-bruno)
-- **Benchmarks vs Previous Model:**
-  - MMLU: **48.7%** (+0.7%)
-  - HellaSwag: **58.0%** (+2.0%)
-  - GSM8K: **55.0%** (+4.0%)
-- **Result:** All benchmarks improved, 59% refusal reduction
-
-### Qwen2.5-Coder-32B Trial 173
-- **Date:** 2026-02-01
-- **GPU:** H200 141GB on Vast.ai
-- **Result:** **0 refusals, KL=0.26**
-- **Output:** `Qwen2.5-Coder-32B-trial173` (65GB)
